@@ -1,0 +1,24 @@
+# Hydra config: persona schema defaults.
+# See src/persona_rag/schema/persona.py.
+
+# Which example personas to register on startup (typically overridden at runtime).
+default_personas:
+  - personas/cs_tutor.yaml
+  - personas/historian.yaml
+  - personas/climate_scientist.yaml
+
+# Epistemic tag vocabulary (immutable at this layer — changing requires a schema bump).
+epistemic_tags:
+  - fact
+  - belief
+  - hypothesis
+  - contested
+
+# Per-field size caps. Mirror the constants in persona.py.
+limits:
+  self_fact_max_chars: 500
+  worldview_claim_max_chars: 500
+  worldview_domain_max_chars: 50
+  constraint_max_chars: 200
+  background_max_chars: 1000
+  persona_id_max_chars: 100

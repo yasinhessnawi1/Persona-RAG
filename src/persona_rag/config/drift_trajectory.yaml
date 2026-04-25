@@ -1,0 +1,37 @@
+# Hydra entry-point config for scripts/drift_trajectory_sanity.py.
+#
+# Usage:
+#   uv run python scripts/drift_trajectory_sanity.py model=gemma
+#   uv run python scripts/drift_trajectory_sanity.py model=gemma layer=8
+#
+# Runs forward passes for every (persona, condition, turn) triple under
+# `conversations_dir`, projects the layer-l prompt-time hidden state onto each
+# persona's cached persona-vector centroid, and records per-turn drift
+# trajectories. Decides one of three verdicts based on `delta_h1` / `delta_h2`.
+
+defaults:
+  - model: gemma
+  - _self_
+
+# Layer the drift signal is evaluated at. Persona-vector validation picks a
+# global best layer; this config inherits that choice.
+layer: 8
+
+# Persona-vector cache directory written by the validation script. Override
+# with `cache_dir=path` if the cache lives elsewhere.
+cache_dir: ./.chroma/persona_vectors
+
+# Where the conversation YAMLs live.
+conversations_dir: benchmarks_data/drift_trajectory
+
+# Verdict thresholds.
+delta_h1: 0.30  # delta >= this on >= 2 of 3 personas → strong-positive verdict
+delta_h2: 0.10  # delta < this on ALL personas → refuted
+
+# Output dir.
+report_dir: results/drift_trajectory/${now:%Y%m%d_%H%M%S}
+
+hydra:
+  run:
+    dir: ${report_dir}
+  output_subdir: hydra

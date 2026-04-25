@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+.env
+.env.*
+docs/*
+
+# uv
+uv.lock  # tracked only if the team decides; leaving out by default for flexibility
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Experiment outputs — keep configs, drop everything else (spec: "results/ gitignored except configs")
+results/*
+!results/.gitkeep
+!results/**/config.yaml
+!results/**/config.yml
+
+# Hydra default output dir — only created when a script runs without overriding
+# hydra.run.dir. Our scripts (smoke_test, validate_persona_vectors) redirect to
+# results/, but ad-hoc dry-runs land here.
+outputs/
+multirun/
+
+# Weights & biases
+wandb/
+
+# Model weights and large artifacts
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.onnx
+*.gguf
+
+# HuggingFace local caches that may land inside the repo by accident
+.cache/
+hf_cache/
+
+# ChromaDB persistent stores (Spec 02 onwards)
+.chroma/
+
+# Private persona YAMLs (real user data, not the public examples)
+personas/private/

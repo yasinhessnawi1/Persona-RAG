@@ -1,0 +1,28 @@
+# Hydra config: typed persona memory stores.
+# See src/persona_rag/stores/.
+
+persist_path: ./.chroma/persona
+embedding_model: sentence-transformers/all-MiniLM-L6-v2
+
+# Collection names. One ChromaDB `PersistentClient` at `persist_path` hosts all four.
+collections:
+  identity: persona_identity
+  self_facts: persona_self_facts
+  worldview: persona_worldview
+  episodic: persona_episodic
+
+# Ebbinghaus decay for episodic retrieval. `tau` is the time constant — after
+# one `tau` has passed, an entry's decay score drops to 1/e ~= 0.37. Adjust
+# per-experiment via a Hydra override.
+decay_tau_hours: 24.0
+
+# Per-store runtime-write policy. Tests exercise the False path.
+runtime_write:
+  identity: false
+  self_facts: false
+  worldview: false
+  episodic: true
+
+# Where per-persona persona-vector caches live. Path is relative to the repo
+# root; `persist_path` above is independent.
+vectors_cache_dir: ./.chroma/persona_vectors

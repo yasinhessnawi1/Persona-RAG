@@ -1,0 +1,25 @@
+# Shared model defaults. Per-backend configs (gemma.yaml, llama.yaml) inherit
+# from this file and override only the fields that differ.
+#
+# Hard constraints encoded here (change only if the deployment target changes):
+# - compute_dtype=float16 is MANDATORY on V100 (CC 7.0, no bf16 hardware).
+#   Flip to bfloat16 when moving to Ampere+ / H100.
+# - attn_implementation=eager is MANDATORY on Gemma 2 (softcap correctness)
+#   and mirrored on Llama 3.1 for kernel-path symmetry.
+# - 4-bit NF4 + double-quant matches the standard Gemma-2-9B 4-bit recipe.
+
+compute_dtype: float16
+attn_implementation: eager
+load_in_4bit: true
+bnb_4bit_quant_type: nf4
+bnb_4bit_use_double_quant: true
+
+# Guardrails — override in the per-backend file if needed.
+max_input_tokens: 4096
+trust_remote_code: false
+revision: null
+
+# Load-time NaN/inf guard. Leaving on; a short warm-up checks logits for
+# NaN/inf and raises immediately on trigger. The smoke test exercises this
+# in both directions.
+warmup_nan_guard: true
