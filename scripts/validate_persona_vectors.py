@@ -2,9 +2,20 @@
 
 Usage:
 
+    # Default: prompt-scope, last-token pooling (replicates the published recipe).
     uv run python scripts/validate_persona_vectors.py model=gemma
+
+    # Llama backend.
     uv run python scripts/validate_persona_vectors.py model=llama
+
+    # Override sample size.
     uv run python scripts/validate_persona_vectors.py model=gemma n_pairs=100
+
+    # Generation-scope re-extraction. Use a *different* cache dir so the
+    # prompt-scope and generation-scope caches coexist.
+    uv run python scripts/validate_persona_vectors.py model=gemma \\
+        extraction_pool=mean extraction_scope=generation \\
+        vectors_cache_dir=./.chroma/persona_vectors_generation
 
 Runs the full persona-vector validation pipeline on every persona in
 ``personas/``:
@@ -30,6 +41,10 @@ Exit code: 0 on confirmed/weak verdict, 2 on refuted.
 
 This script imports from ``persona_rag.models``; on macOS the import fails
 because ``bitsandbytes`` is unavailable. Run on a CUDA host.
+
+NOTE on generation-scope extraction: ``extraction_scope=generation`` is
+~50x slower than ``prompt`` (it runs a 64-token greedy generate per contrast
+prompt instead of a single forward pass). Budget accordingly.
 """
 
 from __future__ import annotations
