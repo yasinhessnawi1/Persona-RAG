@@ -90,7 +90,21 @@ class DriftSignal:
             - ``+1.0`` at the in-persona centroid.
             - ``-1.0`` at the out-persona centroid.
             - ``0.0`` at the decision boundary (equidistant-by-cosine).
+
+        Raises ``ValueError`` if the supplied hidden state's dimensionality
+        does not match the cached centroid — the typical cause is a stale
+        cache from a different backend (e.g. centroids saved during a Llama
+        run being loaded for a Gemma run, where ``hidden_dim`` differs).
         """
+        if hidden.dim() == 1 and hidden.shape[0] != self.in_centroid.shape[0]:
+            raise ValueError(
+                f"hidden-state dim ({hidden.shape[0]}) does not match cached "
+                f"centroid dim ({self.in_centroid.shape[0]}). The cache at "
+                "the configured `cache_dir` was almost certainly built with a "
+                "different backend (e.g. Llama-3.1-8B has hidden_dim=4096 vs "
+                "Gemma-2-9B's 3584). Re-run the validation script for the "
+                "current backend, or point `cache_dir` at the correct cache."
+            )
         a_in = _cosine(hidden, self.in_centroid)
         a_out = _cosine(hidden, self.out_centroid)
         s = _cosine(self.in_centroid, self.out_centroid)

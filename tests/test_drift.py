@@ -91,3 +91,18 @@ def test_degenerate_centroids_give_zero_drift() -> None:
     )
     drift = DriftSignal.from_persona_vectors(pv, 0)
     assert drift.compute(torch.randn(8)) == 0.0
+
+
+def test_compute_rejects_hidden_dim_mismatch() -> None:
+    """Stale-cache guard: a hidden state whose dim doesn't match the cached
+    centroid must raise a clear error, not a confusing matmul traceback.
+
+    Real-world trigger: the cache at the configured ``cache_dir`` was
+    populated by a different backend (e.g. Llama hidden_dim=4096) and the
+    current run uses a different backend (e.g. Gemma hidden_dim=3584).
+    """
+    pv = _make_pv_for_drift()  # hidden_dim=8
+    drift = DriftSignal.from_persona_vectors(pv, 0)
+    wrong_dim = torch.randn(16, dtype=torch.float32)  # 16 != 8
+    with pytest.raises(ValueError, match="hidden-state dim"):
+        drift.compute(wrong_dim)

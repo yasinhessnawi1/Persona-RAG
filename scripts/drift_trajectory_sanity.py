@@ -238,26 +238,49 @@ def _decide_verdict(
 ) -> tuple[str, str]:
     """Return (verdict, rationale) for one of three outcomes.
 
-    - ``proceed``: delta >= delta_h1 on >= 2 of 3 personas (signal is real).
-    - ``refuted``: delta < delta_h2 on ALL personas (signal is approximately
-      constant across conditions).
-    - ``inconclusive``: anything in between — needs human review.
+    Delta is signed: positive means in_persona reads higher than drifting
+    (the expected direction for a working persona-fidelity signal). The
+    verdict thresholds are interpreted directionally:
+
+    - ``proceed``: positive delta >= delta_h1 on >= 2 of N personas — i.e.
+      most personas show an in_persona > drifting differential of the
+      expected magnitude.
+    - ``refuted``: |delta| < delta_h2 on ALL personas — magnitudes are
+      uniformly small in both directions; the signal does not reliably
+      discriminate. This branch does NOT claim "the signal is constant"
+      (it may move within each condition); it claims the means do not
+      separate at the threshold magnitude.
+    - ``inconclusive``: anything else — including the case where some
+      personas show wrong-direction (negative) deltas larger than
+      ``delta_h2``, which is a real finding requiring human review rather
+      than either "proceed" or "refuted".
     """
     n = len(per_persona_delta)
-    n_strong = sum(1 for d in per_persona_delta.values() if d >= delta_h1)
-    n_weak = sum(1 for d in per_persona_delta.values() if d < delta_h2)
-    if n_strong >= max(2, n - 1):
+    deltas = list(per_persona_delta.values())
+    n_strong_correct = sum(1 for d in deltas if d >= delta_h1)
+    n_small_magnitude = sum(1 for d in deltas if abs(d) < delta_h2)
+    n_wrong_dir = sum(1 for d in deltas if d <= -delta_h2)
+
+    if n_strong_correct >= max(2, n - 1):
         return "proceed", (
-            f"{n_strong}/{n} personas show delta >= {delta_h1:.2f} (in_persona - drifting)."
+            f"{n_strong_correct}/{n} personas show delta >= {delta_h1:.2f} "
+            "(in_persona reads higher than drifting at the expected magnitude)."
         )
-    if n_weak == n:
+
+    if n_small_magnitude == n:
         return "refuted", (
-            f"all {n} personas show delta < {delta_h2:.2f} — drift signal is approximately "
-            "constant across in_persona vs drifting conditions."
+            f"all {n} personas show |delta| < {delta_h2:.2f}; per-condition means do not "
+            "separate at the threshold magnitude. Per-turn trajectories may still move; "
+            "what fails here is the directional in_persona vs drifting differential, not "
+            "signal stability."
         )
+
     return "inconclusive", (
-        f"intermediate: {n_strong}/{n} personas above the proceed threshold; "
-        f"{n - n_weak}/{n} above the refuted floor — needs review."
+        f"{n_strong_correct}/{n} personas above the proceed threshold; "
+        f"{n_small_magnitude}/{n} below the small-magnitude floor; "
+        f"{n_wrong_dir}/{n} show wrong-direction (negative) deltas of magnitude "
+        f">= {delta_h2:.2f}. The per-turn trajectories should be reviewed before "
+        "concluding what the signal does or does not measure."
     )
 
 
@@ -525,10 +548,14 @@ def main(cfg: DictConfig) -> int:
     lines.append("|---|---|---|---|---|---|")
     for pid, summary in per_persona_summary.items():
         d_dt = summary["delta_drift_turns"]
-        if d_dt >= float(cfg.delta_h1):
+        h1 = float(cfg.delta_h1)
+        h2 = float(cfg.delta_h2)
+        if d_dt >= h1:
             pp_verdict = "proceed"
-        elif d_dt < float(cfg.delta_h2):
-            pp_verdict = "refuted"
+        elif abs(d_dt) < h2:
+            pp_verdict = "small"
+        elif d_dt <= -h2:
+            pp_verdict = "wrong-direction"
         else:
             pp_verdict = "inconclusive"
         lines.append(
