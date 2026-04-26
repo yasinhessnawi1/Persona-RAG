@@ -49,7 +49,9 @@ class PromptPersonaRAG:
     alpha: float | None = None
     max_new_tokens: int = 256
     max_input_tokens: int = 4096
-    b2_variant: str = "v03"  # "v03" → structured persona block (headline); "v02_one_liner" → audit only
+    b2_variant: str = (
+        "v03"  # "v03" → structured persona block (headline); "v02_one_liner" → audit only
+    )
     name: str = "prompt_persona"
 
     def respond(

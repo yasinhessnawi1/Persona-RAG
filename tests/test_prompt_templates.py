@@ -145,7 +145,7 @@ def test_b2_user_block_does_not_include_persona_chunks(cs_tutor, small_corpus) -
 
 
 def test_b2_simple_system_is_one_liner(cs_tutor) -> None:
-    """The audit-only v0.2 shim is a one-line persona prefix — by construction shorter than v03."""
+    """The audit-only shim is a one-line persona prefix — by construction shorter than the structured block."""
     simple = render_b2_simple_system(cs_tutor)
     assert cs_tutor.identity.name in simple
     assert cs_tutor.identity.role in simple

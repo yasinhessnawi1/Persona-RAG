@@ -150,7 +150,7 @@ def test_b2_rejects_mismatched_few_shot_bundle(
 def test_b2_v02_one_liner_does_not_include_few_shots(
     fake_backend, store, cs_tutor, cs_tutor_few_shots
 ) -> None:
-    """The audit-only v0.2 shim is a one-line persona prefix — no few-shots."""
+    """The audit-only one-liner shim has no few-shots."""
     pipeline = PromptPersonaRAG(
         backend=fake_backend,
         knowledge_store=store,
@@ -159,7 +159,7 @@ def test_b2_v02_one_liner_does_not_include_few_shots(
     )
     r = pipeline.respond("What is Raft?", cs_tutor)
     assert cs_tutor.identity.name in r.prompt_used
-    # No few-shot titles in the v0.2 shim.
+    # No few-shot titles in the one-liner shim.
     for ex in cs_tutor_few_shots.exchanges:
         assert ex.title not in r.prompt_used
     # Constraints not in the simple shim.

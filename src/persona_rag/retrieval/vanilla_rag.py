@@ -59,9 +59,7 @@ class VanillaRAG:
             max_new_tokens=self.max_new_tokens,
         )
         if dropped:
-            logger.warning(
-                "vanilla_rag trimmed {} retrieved chunks to fit token budget", dropped
-            )
+            logger.warning("vanilla_rag trimmed {} retrieved chunks to fit token budget", dropped)
 
         user_block = render_b1_user_block(query, kept_chunks)
         prompt = self.backend.format_persona_prompt(

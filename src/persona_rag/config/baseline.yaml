@@ -9,7 +9,7 @@
 
 defaults:
   - model: gemma
-  - knowledge_store: stores/knowledge_store
+  - knowledge_store: default
   - retrieval: vanilla_rag
   - _self_
 
