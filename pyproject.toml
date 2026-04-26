@@ -63,6 +63,16 @@ dependencies = [
     # by the persona-vector cache writer.
     "umap-learn>=0.5.6,<0.6",
     "matplotlib>=3.9,<4",
+    # Knowledge-store retrieval helpers:
+    # - bm25s is a pure-Python + NumPy BM25 implementation, actively maintained
+    #   and ~5x faster than rank_bm25 on standard benchmarks. rank_bm25 has been
+    #   unmaintained since Feb 2022; its own README points users to retriv for
+    #   production use, so we adopt bm25s instead.
+    # - llama-index-core is used SOLELY for `SentenceSplitter` token-aware
+    #   chunking. The full Document/Node/Index/Retriever stack is intentionally
+    #   avoided so the chunk contract stays symmetric with PersonaChunk.
+    "bm25s>=0.2,<0.4",
+    "llama-index-core>=0.14,<0.15",
 ]
 
 [project.optional-dependencies]

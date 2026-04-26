@@ -1,0 +1,44 @@
+# Top-level Hydra config for scripts/run_baseline.py.
+#
+# Composes model + knowledge_store + retrieval. Override any group at the CLI:
+#
+#   uv run python scripts/run_baseline.py
+#   uv run python scripts/run_baseline.py retrieval=prompt_persona
+#   uv run python scripts/run_baseline.py model=llama retrieval=prompt_persona
+#   uv run python scripts/run_baseline.py retrieval=prompt_persona retrieval.b2_variant=v02_one_liner
+
+defaults:
+  - model: gemma
+  - knowledge_store: stores/knowledge_store
+  - retrieval: vanilla_rag
+  - _self_
+
+# Persona to run against. Filename stem under `personas/`.
+persona_id: cs_tutor
+personas_dir: ./personas
+
+# Test queries to run.
+test_queries:
+  - "I want to learn distributed systems. Where do I start — Raft or Paxos?"
+  - "Explain CAP and PACELC in one paragraph each."
+  - "Why does eventual consistency surprise application developers?"
+  - "Give me a short recommendation: actor model or shared-memory threads?"
+  - "What's the simplest pedagogically-sound first project for distributed systems?"
+
+# Greedy decoding for reproducibility.
+seed: 42
+
+# wandb integration.
+wandb:
+  project: persona-rag
+  entity: null            # Use the user's default entity until explicitly set.
+  mode: offline           # Override at CLI: wandb.mode=online on the V100.
+  run_name_template: "${retrieval.name}_${model.name}_${persona_id}"
+
+# Output directory for artefacts (response logs, prompt dumps, summary).
+report_dir: results/baselines/${now:%Y%m%d_%H%M%S}_${retrieval.name}_${model.name}_${persona_id}
+
+hydra:
+  run:
+    dir: ${report_dir}
+  output_subdir: hydra

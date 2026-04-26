@@ -1,0 +1,21 @@
+# Prompt-persona pipeline: structured persona system block + few-shot exchanges.
+# Few-shots per persona at personas/examples/<persona_id>.yaml.
+name: prompt_persona
+type: b2
+
+# Hybrid retrieval knobs. top_k=3 (smaller than vanilla) leaves system-prompt
+# budget for the structured persona block + few-shots.
+top_k: 3
+candidate_pool: 20
+alpha: null
+
+# v03 → headline structured-block template. v02_one_liner → audit-only shim
+# (used to validate that v03 is measurably stronger than a one-liner prefix).
+b2_variant: v03
+
+# Few-shot bundle directory. <persona_id>.yaml inside this dir is loaded.
+few_shots_dir: ./personas/examples
+
+# Generation knobs.
+max_new_tokens: 256
+max_input_tokens: 4096

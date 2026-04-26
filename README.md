@@ -228,6 +228,73 @@ hidden = backend.get_hidden_states("User turn here.", layers=[drift.layer])[drif
 print(drift.compute(hidden))  # ∈ [-1, 1]; +1 = fully on-persona, -1 = off
 ```
 
+## Running baselines
+
+Two end-to-end baseline retrieval pipelines ship on top of a hybrid (BM25 +
+dense) knowledge store:
+
+- **Vanilla RAG**: hybrid retrieval, neutral system prompt, persona ignored.
+- **Prompt-persona**: hybrid retrieval plus a structured persona system block
+  (identity / self-facts / worldview / constraints) and hand-authored dialogue
+  few-shot exchanges per persona, including at least one constraint-case
+  example (off-domain deflection or contested-topic flag).
+
+### Knowledge store
+
+The knowledge store is a ChromaDB collection (`knowledge_chunks`) under a
+`PersistentClient` at `.chroma/knowledge/`, kept separate from the persona
+stores. Embedder: `BAAI/bge-small-en-v1.5`. Chunker: LlamaIndex
+`SentenceSplitter` (chunk_size=512, chunk_overlap=50). BM25 via `bm25s` is
+built in-memory parallel to dense; hybrid retrieval fuses the two via
+Reciprocal Rank Fusion (RRF, k=60 default per Cormack et al. 2009). A
+weighted-sum ablation toggle is available via `alpha` ∈ [0, 1].
+
+The dev corpus lives at `benchmarks_data/knowledge_corpora/cs_tutor/` (short
+hand-authored markdown snippets on distributed-systems topics, paraphrased to
+avoid copyright issues).
+
+### Few-shot bundles for the prompt-persona pipeline
+
+Each persona ships dialogue few-shots at `personas/examples/<persona_id>.yaml`,
+schema-validated by `FewShotBundle`. Authoring rules:
+- Each exchange is a `user → assistant` pair, drawn from the persona's actual
+  `self_facts` / `worldview` / `constraints` rather than generic content.
+- At least one exchange per persona has `is_constraint_case: true` — the
+  persona's no-go demonstration.
+- The renderer orders constraint-case few-shots last so they're freshest in
+  the model's context.
+
+### Running
+
+```bash
+# Vanilla RAG (default), Gemma 2, cs_tutor persona, dev corpus
+uv run python scripts/run_baseline.py
+
+# Prompt-persona, Llama 3.1, historian persona
+uv run python scripts/run_baseline.py model=llama retrieval=prompt_persona persona_id=historian
+
+# Audit-only one-liner persona-prefix variant (for strength comparisons)
+uv run python scripts/run_baseline.py retrieval=prompt_persona retrieval.b2_variant=v02_one_liner
+
+# Weighted-sum hybrid fusion ablation (alpha=0.5)
+uv run python scripts/run_baseline.py retrieval.alpha=0.5
+
+# wandb online (server)
+WANDB_MODE=online uv run python scripts/run_baseline.py wandb.mode=online
+```
+
+Per-query response artefacts (`response_NN.json`) and a `summary.json` land
+under `results/baselines/<timestamp>_<retrieval>_<model>_<persona>/`.
+
+### Strength-comparison audit
+
+The prompt-persona pipeline has an audit-only variant
+(`retrieval.b2_variant=v02_one_liner`) that swaps the structured persona
+block for a naïve one-liner persona prefix. Use it to validate that the
+structured variant is measurably stronger than a one-liner — never use it in
+headline results. Compare contradiction-rate and persona-adherence between
+the two variants over a fixed pilot set of conversations × personas.
+
 ## Tests
 
 ```bash

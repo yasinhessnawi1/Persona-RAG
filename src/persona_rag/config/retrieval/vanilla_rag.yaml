@@ -1,0 +1,13 @@
+# Vanilla RAG pipeline. No persona conditioning.
+name: vanilla_rag
+type: b1
+
+# Hybrid retrieval knobs.
+top_k: 5
+candidate_pool: 20
+# Fusion mode: alpha=null → RRF (default); float → weighted-sum ablation.
+alpha: null
+
+# Generation knobs.
+max_new_tokens: 256
+max_input_tokens: 4096

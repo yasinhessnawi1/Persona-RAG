@@ -72,3 +72,55 @@ def fake_embedder() -> FakeEmbedder:
 def personas_dir() -> Path:
     """Repo-relative path to the shipped example personas."""
     return Path(__file__).resolve().parents[1] / "personas"
+
+
+class FakeBackend:
+    """Tiny `LLMBackend`-shaped stub for baseline tests — no model load.
+
+    `format_persona_prompt` returns a string the tests can inspect for both
+    persona text presence (B2) and absence (B1). `generate` echoes the prompt
+    so tests can assert the generated text is a deterministic function of the
+    prompt.
+    """
+
+    name = "fake-backend"
+    model_id = "fake/fake"
+    num_layers = 4
+    hidden_dim = 16
+
+    def __init__(self) -> None:
+        self.last_prompt: str | None = None
+        self.generate_calls: list[str] = []
+
+    def format_persona_prompt(
+        self,
+        system_text: str | None,
+        user_text: str,
+        history=None,
+    ) -> str:
+        history_block = ""
+        if history:
+            history_block = "\n".join(f"{t.role}: {t.content}" for t in history) + "\n"
+        sys_block = (system_text or "").rstrip()
+        return f"<<SYS>>\n{sys_block}\n<</SYS>>\n{history_block}<<USER>>\n{user_text}\n<</USER>>"
+
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_new_tokens: int = 256,
+        temperature: float = 0.0,
+        top_p: float = 1.0,
+        seed: int | None = None,
+    ) -> str:
+        self.last_prompt = prompt
+        self.generate_calls.append(prompt)
+        # Deterministic: hash a slice of the prompt so tests can compare runs.
+        digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+        return f"[fake] generated reply for prompt sha={digest}"
+
+
+@pytest.fixture
+def fake_backend() -> FakeBackend:
+    """A no-op `LLMBackend`-shaped stub for baseline tests."""
+    return FakeBackend()
