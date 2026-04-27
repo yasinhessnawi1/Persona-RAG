@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -154,11 +155,97 @@ def _init_wandb(cfg: DictConfig, persona_id: str) -> Any | None:
     )
 
 
-def _write_response(report_dir: Path, ix: int, query: str, response: Response) -> None:
-    """Dump one query/response pair as JSON for later inspection."""
-    out = report_dir / f"response_{ix:02d}.json"
+@dataclass(frozen=True)
+class _ParsedQuery:
+    """One test query parsed out of the Hydra config."""
+
+    ix: int
+    text: str
+    bucket: str
+    multi_seed: bool
+    skip_in_matrix: bool
+
+
+_VALID_BUCKETS = {
+    "knowledge_grounded",
+    "semantic_adjacent",
+    "constraint_stressing",
+    "appendix_contamination_demo",
+}
+
+
+def _parse_test_queries(raw: Any) -> list[_ParsedQuery]:
+    """Validate + normalise the `test_queries` Hydra field.
+
+    Each item is a mapping with a required `text` and `bucket`, and optional
+    `multi_seed` (default false) and `skip_in_matrix` (default false). Anything
+    else fails fast — there is no backward-compat for the old flat-list shape.
+    """
+    if raw is None:
+        raise ValueError("test_queries is missing from the config")
+    if isinstance(raw, str):
+        raise ValueError("test_queries must be a list of mappings, not a string")
+    out: list[_ParsedQuery] = []
+    for ix, item in enumerate(raw):
+        if not isinstance(item, dict | DictConfig):
+            raise ValueError(
+                f"test_queries[{ix}] must be a mapping with `text` and `bucket`, "
+                f"got {type(item).__name__}"
+            )
+        text = item.get("text")
+        bucket = item.get("bucket")
+        if not text or not isinstance(text, str):
+            raise ValueError(f"test_queries[{ix}].text must be a non-empty string")
+        if bucket not in _VALID_BUCKETS:
+            raise ValueError(
+                f"test_queries[{ix}].bucket must be one of {sorted(_VALID_BUCKETS)}, got {bucket!r}"
+            )
+        out.append(
+            _ParsedQuery(
+                ix=ix,
+                text=text,
+                bucket=str(bucket),
+                multi_seed=bool(item.get("multi_seed", False)),
+                skip_in_matrix=bool(item.get("skip_in_matrix", False)),
+            )
+        )
+    if not out:
+        raise ValueError("test_queries is empty — at least one query is required")
+    return out
+
+
+def _seeds_for(query: _ParsedQuery, default_seed: int, multi_seeds: list[int]) -> list[int]:
+    """Pick the seed list for one query: multi when `multi_seed`, else single."""
+    if query.multi_seed:
+        if not multi_seeds:
+            raise ValueError(
+                f"test_queries[{query.ix}] sets multi_seed=true but constraint_query_seeds is empty"
+            )
+        return list(multi_seeds)
+    return [default_seed]
+
+
+def _response_filename(query: _ParsedQuery, seed: int) -> str:
+    """Single-shot queries → response_NN.json; multi-seed → response_NN_seedSSSS.json."""
+    if query.multi_seed:
+        return f"response_{query.ix:02d}_seed{seed:04d}.json"
+    return f"response_{query.ix:02d}.json"
+
+
+def _write_response(
+    report_dir: Path,
+    query: _ParsedQuery,
+    seed: int,
+    response: Response,
+) -> Path:
+    """Dump one query/response pair as JSON for later inspection. Returns the path."""
+    out = report_dir / _response_filename(query, seed)
     payload = {
-        "query": query,
+        "query": query.text,
+        "bucket": query.bucket,
+        "multi_seed": query.multi_seed,
+        "skip_in_matrix": query.skip_in_matrix,
+        "seed": seed,
         "text": response.text,
         "prompt_used": response.prompt_used,
         "metadata": response.metadata,
@@ -177,6 +264,7 @@ def _write_response(report_dir: Path, ix: int, query: str, response: Response) -
         "drift_signal": response.drift_signal,
     }
     out.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return out
 
 
 @hydra.main(version_base=None, config_path="../src/persona_rag/config", config_name="baseline")
@@ -184,8 +272,19 @@ def main(cfg: DictConfig) -> int:
     """Hydra entry point. Returns 0 on success, nonzero on failure."""
     report_dir = Path(cfg.report_dir).resolve()
     report_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("Spec-04 baseline run — report_dir={}", report_dir)
+    logger.info("baseline run — report_dir={}", report_dir)
     logger.info("Resolved config:\n{}", OmegaConf.to_yaml(cfg, resolve=True))
+
+    queries = _parse_test_queries(cfg.test_queries)
+    default_seed = int(cfg.get("seed", 42))
+    multi_seeds = [int(s) for s in cfg.get("constraint_query_seeds", [])]
+    n_runs = sum(len(_seeds_for(q, default_seed, multi_seeds)) for q in queries)
+    logger.info(
+        "Parsed {} queries across buckets {} ({} total seed-runs).",
+        len(queries),
+        sorted({q.bucket for q in queries}),
+        n_runs,
+    )
 
     # Persona.
     persona_path = _resolve(cfg.personas_dir) / f"{cfg.persona_id}.yaml"
@@ -217,35 +316,55 @@ def main(cfg: DictConfig) -> int:
     # wandb (best-effort).
     wandb_run = _init_wandb(cfg, persona.persona_id or "<unknown>")
 
-    # Run queries.
+    # Run queries — each (query, seed) combination is a separate run.
     summary: dict[str, Any] = {
         "persona_id": persona.persona_id,
         "backend": backend.name,
         "baseline": baseline.name,
-        "queries_n": len(cfg.test_queries),
+        "queries_n": len(queries),
+        "seed_runs_n": n_runs,
+        "default_seed": default_seed,
+        "constraint_query_seeds": multi_seeds,
         "results": [],
     }
-    for ix, query in enumerate(cfg.test_queries):
-        logger.info("Q{}: {}", ix, query)
-        response = baseline.respond(query, persona)
-        _write_response(report_dir, ix, query, response)
-        summary["results"].append(
-            {
-                "ix": ix,
-                "query": query,
-                "text_preview": response.text[:200],
-                "trimmed_chunks": response.metadata.get("trimmed_chunks"),
-                "retrieved_knowledge_n": len(response.retrieved_knowledge),
-            }
-        )
-        if wandb_run is not None:
-            wandb_run.log(
+    log_step = 0
+    for query in queries:
+        seeds = _seeds_for(query, default_seed, multi_seeds)
+        for seed in seeds:
+            logger.info(
+                "Q{} [{}] seed={} (skip_in_matrix={}): {}",
+                query.ix,
+                query.bucket,
+                seed,
+                query.skip_in_matrix,
+                query.text,
+            )
+            response = baseline.respond(query.text, persona, seed=seed)
+            _write_response(report_dir, query, seed, response)
+            summary["results"].append(
                 {
-                    "query_ix": ix,
+                    "ix": query.ix,
+                    "query": query.text,
+                    "bucket": query.bucket,
+                    "multi_seed": query.multi_seed,
+                    "skip_in_matrix": query.skip_in_matrix,
+                    "seed": seed,
+                    "text_preview": response.text[:200],
                     "trimmed_chunks": response.metadata.get("trimmed_chunks"),
                     "retrieved_knowledge_n": len(response.retrieved_knowledge),
                 }
             )
+            if wandb_run is not None:
+                wandb_run.log(
+                    {
+                        "step": log_step,
+                        "query_ix": query.ix,
+                        "seed": seed,
+                        "trimmed_chunks": response.metadata.get("trimmed_chunks"),
+                        "retrieved_knowledge_n": len(response.retrieved_knowledge),
+                    }
+                )
+            log_step += 1
 
     summary_path = report_dir / "summary.json"
     summary_path.write_text(

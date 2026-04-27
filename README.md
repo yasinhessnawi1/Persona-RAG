@@ -283,8 +283,26 @@ uv run python scripts/run_baseline.py retrieval.alpha=0.5
 WANDB_MODE=online uv run python scripts/run_baseline.py wandb.mode=online
 ```
 
-Per-query response artefacts (`response_NN.json`) and a `summary.json` land
-under `results/baselines/<timestamp>_<retrieval>_<model>_<persona>/`.
+Per-query response artefacts (`response_NN.json` for single-shot queries,
+`response_NN_seedSSSS.json` for multi-seed constraint-stressing queries) and a
+`summary.json` land under
+`results/baseline_pilot/<timestamp>_<retrieval>_<model>_<persona>/`.
+
+### Test-query schema
+
+`baseline.yaml` carries `test_queries` as a list of mappings, each with a
+required `text` and `bucket`, and optional `multi_seed` and `skip_in_matrix`
+flags. Buckets:
+
+- `knowledge_grounded` — exercises hybrid retrieval; expects citation discipline.
+- `semantic_adjacent` — adjacent to persona worldview but lexically distinct
+  from any few-shot user turn; tests voice generalisation.
+- `constraint_stressing` — pressures the persona's no-go zones; typically
+  flagged `multi_seed: true` so the pipeline runs once per seed in
+  `constraint_query_seeds` and the deflection rate is measurable across runs.
+- `appendix_contamination_demo` — kept on disk to demonstrate few-shot replay
+  behaviour; flagged `skip_in_matrix: true` so headline comparison-matrix
+  builds exclude it without losing the audit trail.
 
 ### Strength-comparison audit
 

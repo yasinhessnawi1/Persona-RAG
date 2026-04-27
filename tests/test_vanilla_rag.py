@@ -101,3 +101,19 @@ def test_b1_weighted_sum_alpha_is_recorded(fake_backend, store, cs_tutor) -> Non
     pipeline = VanillaRAG(backend=fake_backend, knowledge_store=store, alpha=0.5)
     r = pipeline.respond("Raft", cs_tutor)
     assert "weighted_sum" in r.metadata["fusion_mode"]
+
+
+def test_b1_seed_propagates_to_backend_and_metadata(fake_backend, store, cs_tutor) -> None:
+    """`respond(..., seed=N)` forwards N to backend.generate and records it in metadata."""
+    pipeline = VanillaRAG(backend=fake_backend, knowledge_store=store)
+    r = pipeline.respond("What is Raft?", cs_tutor, seed=1337)
+    assert fake_backend.seeds_seen[-1] == 1337
+    assert r.metadata["seed"] == 1337
+
+
+def test_b1_seed_default_none(fake_backend, store, cs_tutor) -> None:
+    """Without an explicit seed the backend gets None (its own default applies)."""
+    pipeline = VanillaRAG(backend=fake_backend, knowledge_store=store)
+    r = pipeline.respond("What is Raft?", cs_tutor)
+    assert fake_backend.seeds_seen[-1] is None
+    assert r.metadata["seed"] is None

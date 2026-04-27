@@ -42,6 +42,8 @@ class VanillaRAG:
         query: str,
         persona: Persona,
         history: list[Turn] | None = None,
+        *,
+        seed: int | None = None,
     ) -> Response:
         """Run the vanilla RAG pipeline end-to-end."""
         knowledge_chunks = self.knowledge_store.query_hybrid(
@@ -65,7 +67,10 @@ class VanillaRAG:
         prompt = self.backend.format_persona_prompt(
             system_text=B1_VANILLA_RAG_SYSTEM, user_text=user_block, history=None
         )
-        text = self.backend.generate(prompt, max_new_tokens=self.max_new_tokens)
+        gen_kwargs = {"max_new_tokens": self.max_new_tokens}
+        if seed is not None:
+            gen_kwargs["seed"] = seed
+        text = self.backend.generate(prompt, **gen_kwargs)
 
         return Response(
             text=text,
@@ -82,5 +87,6 @@ class VanillaRAG:
                 "fusion_mode": "rrf" if self.alpha is None else f"weighted_sum(alpha={self.alpha})",
                 "top_k": self.top_k,
                 "trimmed_chunks": dropped,
+                "seed": seed,
             },
         )

@@ -70,5 +70,13 @@ class RetrievalPipeline(Protocol):
         query: str,
         persona: Persona,
         history: list[Turn] | None = None,
+        *,
+        seed: int | None = None,
     ) -> Response:
-        """Run the full retrieval + generation pipeline for one query."""
+        """Run the full retrieval + generation pipeline for one query.
+
+        `seed` is passed through to the backend's generation call. ``None``
+        means "let the backend pick" (typically the backend's own default for
+        greedy decoding). Multi-seed dispatch is the caller's responsibility:
+        invoke `respond` once per seed, log each result.
+        """

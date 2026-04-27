@@ -59,6 +59,8 @@ class PromptPersonaRAG:
         query: str,
         persona: Persona,
         history: list[Turn] | None = None,
+        *,
+        seed: int | None = None,
     ) -> Response:
         """Run the prompt-persona pipeline end-to-end."""
         if self.b2_variant not in ("v03", "v02_one_liner"):
@@ -98,7 +100,10 @@ class PromptPersonaRAG:
         prompt = self.backend.format_persona_prompt(
             system_text=system_text, user_text=user_block, history=history_msgs
         )
-        text = self.backend.generate(prompt, max_new_tokens=self.max_new_tokens)
+        gen_kwargs = {"max_new_tokens": self.max_new_tokens}
+        if seed is not None:
+            gen_kwargs["seed"] = seed
+        text = self.backend.generate(prompt, **gen_kwargs)
 
         return Response(
             text=text,
@@ -119,6 +124,7 @@ class PromptPersonaRAG:
                 "fusion_mode": "rrf" if self.alpha is None else f"weighted_sum(alpha={self.alpha})",
                 "top_k": self.top_k,
                 "trimmed_chunks": dropped,
+                "seed": seed,
             },
         )
 

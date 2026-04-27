@@ -191,3 +191,16 @@ def test_b2_deterministic_under_same_inputs(
     r2 = pipeline.respond("What is Raft?", cs_tutor)
     assert r1.prompt_used == r2.prompt_used
     assert r1.text == r2.text
+
+
+def test_b2_seed_propagates_to_backend_and_metadata(
+    fake_backend, store, cs_tutor, cs_tutor_few_shots
+) -> None:
+    """Multi-seed dispatch from the entry-point script must reach the backend cleanly."""
+    pipeline = PromptPersonaRAG(
+        backend=fake_backend, knowledge_store=store, few_shots=cs_tutor_few_shots
+    )
+    for seed in (42, 1337, 2024):
+        r = pipeline.respond("What is Raft?", cs_tutor, seed=seed)
+        assert r.metadata["seed"] == seed
+    assert fake_backend.seeds_seen[-3:] == [42, 1337, 2024]

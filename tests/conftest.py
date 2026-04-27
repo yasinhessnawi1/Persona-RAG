@@ -91,6 +91,7 @@ class FakeBackend:
     def __init__(self) -> None:
         self.last_prompt: str | None = None
         self.generate_calls: list[str] = []
+        self.seeds_seen: list[int | None] = []
 
     def format_persona_prompt(
         self,
@@ -115,6 +116,7 @@ class FakeBackend:
     ) -> str:
         self.last_prompt = prompt
         self.generate_calls.append(prompt)
+        self.seeds_seen.append(seed)
         # Deterministic: hash a slice of the prompt so tests can compare runs.
         digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
         return f"[fake] generated reply for prompt sha={digest}"
