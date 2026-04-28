@@ -184,7 +184,13 @@ def _build_m3(
     each through ``persona_rag.models``' factory pattern (mirroring
     ``_build_backend``).
     """
-    from persona_rag.models import GemmaBackend, HFBackendConfig, LlamaBackend
+    from persona_rag.models import (
+        GemmaBackend,
+        HFBackendConfig,
+        LlamaBackend,
+        PrometheusBackend,
+        QwenBackend,
+    )
 
     rcfg = cfg.retrieval
     identity, self_facts, worldview, episodic = _build_typed_memory(cfg, persona)
@@ -211,24 +217,36 @@ def _build_m3(
     )
 
     def _build_judge_backend(model_id: str, name: str) -> Any:
+        # Each backend's ``default_config`` carries per-model attention /
+        # dtype overrides (Qwen2.5 needs SDPA, not eager — eager + fp16 +
+        # 4-bit produces NaN logits on V100). Honour those.
+        common_overrides: dict[str, object] = {
+            "model_id": model_id,
+            "name": name,
+            "revision": None,
+            "load_in_4bit": True,
+            "bnb_4bit_quant_type": "nf4",
+            "bnb_4bit_use_double_quant": True,
+            "max_input_tokens": 4096,
+            "trust_remote_code": False,
+            "warmup_nan_guard": True,
+        }
+        if name.startswith("qwen"):
+            return QwenBackend(QwenBackend.default_config(**common_overrides))
+        if name.startswith("prometheus"):
+            return PrometheusBackend(PrometheusBackend.default_config(**common_overrides))
+        if name.startswith("llama"):
+            return LlamaBackend(LlamaBackend.default_config(**common_overrides))
+        if name.startswith("gemma"):
+            return GemmaBackend(GemmaBackend.default_config(**common_overrides))
+        # Fallback: Llama loader covers most Mistral / decoder-only models
+        # without special quirks. The HFBackendConfig path uses the shared
+        # plumbing.
         judge_cfg = HFBackendConfig(
-            model_id=model_id,
-            name=name,
-            revision=None,
+            **common_overrides,  # type: ignore[arg-type]
             compute_dtype="float16",
             attn_implementation="eager",
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_use_double_quant=True,
-            max_input_tokens=4096,
-            trust_remote_code=False,
-            warmup_nan_guard=True,
         )
-        if name.startswith("llama"):
-            return LlamaBackend(judge_cfg)
-        if name.startswith("gemma"):
-            return GemmaBackend(judge_cfg)
-        # Fallback: Llama loader covers most Mistral/Prometheus-style decoders.
         return LlamaBackend(judge_cfg)
 
     gate_judge = _build_judge_backend(str(rcfg.gate.judge_model), str(rcfg.gate.judge_name))

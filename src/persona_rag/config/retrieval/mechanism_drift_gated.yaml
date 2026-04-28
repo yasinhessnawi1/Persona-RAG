@@ -12,18 +12,27 @@ type: m3
 
 # ---- Drift gate ----
 gate:
-  # Cheapest of the project's evaluator panel; called every turn.
-  # Cross-family from the rerank judge to avoid double-counting the same
-  # model's preferences in both gating and ranking.
-  judge_model: meta-llama/Llama-3.1-8B-Instruct
-  judge_name: llama-3.1-8b
+  # Qwen2.5-7B-Instruct is the operational gate-judge after the four-judge
+  # cross-tier calibration sweep (Llama-3.1-8B / Prometheus-2-7B /
+  # Qwen2.5-7B / GLM-4.7-API). Qwen produced the best headline differential
+  # (+0.40) on the four-axis structured-reasoning prompt, with the lowest
+  # in_persona false-positive rate (~7%) and 30/30 axis-population rate.
+  # SDPA attention (override in qwen.yaml) — eager + fp16 + 4-bit triggers
+  # NaN logits on V100 for Qwen's bf16-trained weights.
+  judge_model: Qwen/Qwen2.5-7B-Instruct
+  judge_name: qwen2.5-7b-instruct
   # Confidence threshold for the gate to fire. Tuned via the calibration
-  # sweep at evaluation time; default 0.5.
+  # sweep at evaluation time; default 0.5. Qwen's confidences cluster at
+  # 0.6-1.0 for drift verdicts, so thresholds in {0.3, 0.4, 0.5, 0.6}
+  # produce identical flag-rates; threshold 0.7 starts dropping signal.
   confidence_threshold: 0.5
   # History window threaded into the gate prompt (turns; 4 = two prior pairs).
   history_window: 4
-  # Generation budget for the structured 3-line response.
-  max_new_tokens: 96
+  # Generation budget for the four-axis JSON response. The gate template's
+  # output budget is the limiting factor: Qwen sometimes emits the JSON
+  # twice (multi-output), so we leave headroom; the parser takes the
+  # first balanced object.
+  max_new_tokens: 256
   temperature: 0.0
 
 # ---- Hybrid ranker ----
