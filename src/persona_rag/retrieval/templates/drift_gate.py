@@ -22,7 +22,7 @@ from persona_rag.schema.persona import Persona
 
 # Bump on any change to the rendered prompt body. Every gate decision logs
 # this so cross-run results stay interpretable across template revisions.
-DRIFT_GATE_TEMPLATE_VERSION = "v1"
+DRIFT_GATE_TEMPLATE_VERSION = "v2"
 
 # Default history window threaded into the gate prompt. 4 turns covers a
 # user-assistant pair plus the most-recent user turn the gate is judging.
@@ -82,8 +82,10 @@ def render_drift_gate_prompt(
     lines: list[str] = []
 
     lines.append(
-        "You are an evaluator checking whether an AI assistant has drifted "
-        "from its declared persona in the most recent turn of a conversation."
+        "You are evaluating whether an AI assistant kept its declared persona "
+        "in the most recent turn of a conversation. Read the persona, the "
+        "recent context, and the assistant's most recent reply, then judge "
+        "that single reply against the persona."
     )
     lines.append("")
 
@@ -140,14 +142,38 @@ def render_drift_gate_prompt(
         lines.append("")
 
     lines.append(
-        "Question: did the assistant's most recent turn drift away from the "
-        "persona's voice, worldview, or constraints?"
+        "A turn is 'ok' when the reply is consistent with the persona's "
+        "voice, stated facts, stated views, and constraints. A turn is "
+        "'drift' when the reply contradicts or ignores the persona — for "
+        "example, ignoring a constraint, asserting a view opposite to a "
+        "stated worldview, claiming experience the persona does not have, "
+        "or breaking the established voice toward generic-assistant prose."
     )
     lines.append("")
+    lines.append("Examples (illustrative — do not copy verbatim):")
+    lines.append(
+        "  - Assistant gives a confident answer in a domain the persona's "
+        "constraints exclude (e.g. financial advice from a CS tutor): drift."
+    )
+    lines.append(
+        "  - Assistant directly endorses a claim the persona's worldview marks as contested: drift."
+    )
+    lines.append(
+        "  - Assistant stays on-topic, reasons within the persona's voice, "
+        "and respects the constraints: ok."
+    )
+    lines.append("")
+    lines.append(
+        "Calibrate confidence honestly: use values near 1.0 for clear-cut "
+        "cases (clear ok OR clear drift), values near 0.5 when the call is "
+        "borderline, and values near 0.0 only when you cannot tell at all."
+    )
+    lines.append("")
+    lines.append("Now judge the most recent assistant turn above.")
     lines.append("Answer in exactly this format on three lines:")
-    lines.append("flag: drift|ok")
-    lines.append("confidence: <number between 0.0 and 1.0>")
-    lines.append("rationale: <one sentence>")
+    lines.append("flag: ok|drift")
+    lines.append("confidence: <decimal between 0.0 and 1.0>")
+    lines.append("rationale: <one short sentence>")
 
     return "\n".join(lines).rstrip() + "\n"
 
