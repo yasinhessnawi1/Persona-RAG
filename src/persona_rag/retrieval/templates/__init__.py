@@ -8,6 +8,7 @@ lands a new decisions-log entry.
 """
 
 from persona_rag.retrieval.templates.drift_gate import (
+    DEFAULT_HISTORY_WINDOW,
     DRIFT_GATE_TEMPLATE_VERSION,
     DriftCheck,
     parse_drift_gate_response,
@@ -15,6 +16,7 @@ from persona_rag.retrieval.templates.drift_gate import (
 )
 
 __all__ = [
+    "DEFAULT_HISTORY_WINDOW",
     "DRIFT_GATE_TEMPLATE_VERSION",
     "DriftCheck",
     "parse_drift_gate_response",
