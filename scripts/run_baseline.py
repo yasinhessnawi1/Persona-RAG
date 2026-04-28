@@ -29,9 +29,17 @@ from persona_rag.retrieval import (
     FewShotBundle,
     PromptPersonaRAG,
     Response,
+    TypedRetrievalRAG,
     VanillaRAG,
 )
+from persona_rag.schema.chunker import chunk_persona
 from persona_rag.schema.persona import Persona
+from persona_rag.stores import (
+    EpisodicStore,
+    IdentityStore,
+    SelfFactsStore,
+    WorldviewStore,
+)
 from persona_rag.stores.knowledge_store import KnowledgeDocument, KnowledgeStore
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -129,7 +137,60 @@ def _build_baseline(
             max_input_tokens=int(rcfg.max_input_tokens),
             b2_variant=str(rcfg.b2_variant),
         )
-    raise ValueError(f"Unknown retrieval.type {btype!r} — expected b1 or b2")
+    if btype == "m1":
+        identity, self_facts, worldview, episodic = _build_typed_memory(cfg, persona)
+        return TypedRetrievalRAG(
+            backend=backend,
+            knowledge_store=knowledge_store,
+            identity_store=identity,
+            self_facts_store=self_facts,
+            worldview_store=worldview,
+            episodic_store=episodic,
+            use_identity_every_turn=bool(rcfg.use_identity_every_turn),
+            use_epistemic_tags=bool(rcfg.use_epistemic_tags),
+            use_episodic=bool(rcfg.use_episodic),
+            write_episodic=bool(rcfg.write_episodic),
+            epistemic_allowlist=tuple(rcfg.epistemic_allowlist),
+            top_k_self_facts=int(rcfg.top_k_self_facts),
+            top_k_worldview=int(rcfg.top_k_worldview),
+            top_k_episodic=int(rcfg.top_k_episodic),
+            top_k_knowledge=int(rcfg.top_k_knowledge),
+            candidate_pool=int(rcfg.candidate_pool),
+            alpha=rcfg.alpha,
+            max_new_tokens=int(rcfg.max_new_tokens),
+            max_input_tokens=int(rcfg.max_input_tokens),
+            name=str(rcfg.name),
+        )
+    raise ValueError(f"Unknown retrieval.type {btype!r} — expected b1, b2, or m1")
+
+
+def _build_typed_memory(
+    cfg: DictConfig,
+    persona: Persona,
+) -> tuple[IdentityStore, SelfFactsStore, WorldviewStore, EpisodicStore]:
+    """Open the four typed persona stores at `persona_store.persist_path` and index `persona`.
+
+    Reuses one ChromaDB `PersistentClient` across all four stores by opening
+    them at the same path. Indexing is idempotent by chunk id so re-runs are
+    cheap.
+    """
+    ps_cfg = cfg.stores
+    persist = _resolve(ps_cfg.persist_path)
+    embedding_model = str(ps_cfg.embedding_model)
+    identity = IdentityStore(persist, embedding_model=embedding_model)
+    self_facts = SelfFactsStore(persist, embedding_model=embedding_model)
+    worldview = WorldviewStore(persist, embedding_model=embedding_model)
+    episodic = EpisodicStore(persist, embedding_model=embedding_model)
+
+    chunks = chunk_persona(persona)
+    counts = {
+        "identity": identity.index(chunks),
+        "self_facts": self_facts.index(chunks),
+        "worldview": worldview.index(chunks),
+        "episodic": episodic.index(chunks),
+    }
+    logger.info("typed memory indexed for {!r}: {}", persona.persona_id, counts)
+    return identity, self_facts, worldview, episodic
 
 
 def _init_wandb(cfg: DictConfig, persona_id: str) -> Any | None:

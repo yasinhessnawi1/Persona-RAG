@@ -1,0 +1,39 @@
+# Typed-retrieval pipeline: per-turn typed-store retrieval + ID-RAG.
+# Persona content is retrieved every turn from the four typed memory stores;
+# identity is re-grounded every turn (use_identity_every_turn: true). The
+# knowledge leg reuses the hybrid retriever (RRF over BM25 + dense).
+name: typed_retrieval
+type: m1
+
+# ID-RAG ablation switch. true → retrieve identity + constraints every turn
+# (default). false → only on turn 0; the rest of the conversation runs without
+# identity re-grounding (used by the ID-RAG ablation writeup).
+use_identity_every_turn: true
+
+# Render epistemic tag in parens after each worldview claim. true → "(belief)"
+# / "(fact)" / "(hypothesis)" / "(contested)" suffix. false → strip the tag.
+use_epistemic_tags: true
+
+# Episodic memory. Off by default (semester scope); flip on for the ablation
+# at config time, or via the M3 cheap-path (future spec).
+use_episodic: false
+write_episodic: false
+
+# Worldview retrieval epistemic-tag allowlist. All four tags by default; reduce
+# to e.g. ["fact", "belief"] to suppress contested/hypothesis claims.
+epistemic_allowlist: ["fact", "belief", "hypothesis", "contested"]
+
+# Top-k per typed store. Tuned later as the empirical evidence base grows.
+top_k_self_facts: 3
+top_k_worldview: 3
+top_k_episodic: 0
+top_k_knowledge: 5
+
+# Knowledge-retrieval fusion knobs. Match the prompt-persona pipeline so M1
+# and B2 v03 share the knowledge surface.
+candidate_pool: 20
+alpha: null  # null → RRF; numeric in [0,1] → weighted-sum ablation
+
+# Generation budget.
+max_new_tokens: 256
+max_input_tokens: 4096

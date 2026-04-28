@@ -31,10 +31,16 @@ from persona_rag.retrieval.prompt_templates import (
     render_b2_simple_system,
     render_b2_user_block,
 )
+from persona_rag.retrieval.typed_retrieval import (
+    DEFAULT_EPISTEMIC_ALLOWLIST,
+    TypedRetrievalRAG,
+    render_typed_system_block,
+)
 from persona_rag.retrieval.vanilla_rag import VanillaRAG
 
 __all__ = [
     "B1_VANILLA_RAG_SYSTEM",
+    "DEFAULT_EPISTEMIC_ALLOWLIST",
     "DEFAULT_RRF_K",
     "FewShotBundle",
     "FewShotExchange",
@@ -43,11 +49,13 @@ __all__ = [
     "Response",
     "RetrievalPipeline",
     "Turn",
+    "TypedRetrievalRAG",
     "VanillaRAG",
     "reciprocal_rank_fusion",
     "render_b1_user_block",
     "render_b2_persona_block",
     "render_b2_simple_system",
     "render_b2_user_block",
+    "render_typed_system_block",
     "weighted_sum_fusion",
 ]
