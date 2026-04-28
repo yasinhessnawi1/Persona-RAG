@@ -381,6 +381,61 @@ def test_deterministic_under_same_inputs(m1, typed_stores, cs_tutor):
     assert r1.text == r2.text
 
 
+# --------------------------------------------------------------- prompt-budget trimming
+
+
+def test_long_history_triggers_history_trim(fake_backend, knowledge_store, typed_stores, cs_tutor):
+    """Conversation history that overflows the prompt budget gets FIFO-dropped."""
+    _index_persona(typed_stores, cs_tutor)
+    identity, self_facts, worldview, episodic = typed_stores
+    # Tight budget so even a small history blows it. max_input_tokens is the
+    # hard cap; max_new_tokens is reserved for generation; the implementation
+    # subtracts a 128-token safety margin and the system+query overhead.
+    pipeline = TypedRetrievalRAG(
+        backend=fake_backend,
+        knowledge_store=knowledge_store,
+        identity_store=identity,
+        self_facts_store=self_facts,
+        worldview_store=worldview,
+        episodic_store=episodic,
+        max_new_tokens=64,
+        max_input_tokens=512,
+    )
+    # Build a 20-turn fake history of long-ish chat lines — guaranteed to
+    # exceed any reasonable budget under max_input_tokens=512.
+    long_text = "x " * 200  # ~400 chars per turn
+    history = []
+    for i in range(20):
+        history.append(Turn(role="user", content=f"User turn {i}: {long_text}"))
+        history.append(Turn(role="assistant", content=f"Assistant turn {i}: {long_text}"))
+
+    r = pipeline.respond("a final question", cs_tutor, history=history)
+    # Some history pairs were dropped to fit.
+    assert r.metadata["trimmed_history_turns"] > 0
+    # The dropped count is even (we drop in pairs of user+assistant).
+    assert r.metadata["trimmed_history_turns"] % 2 == 0
+
+
+def test_short_history_is_not_trimmed(fake_backend, knowledge_store, typed_stores, cs_tutor):
+    """A short history under any reasonable budget passes through untouched."""
+    _index_persona(typed_stores, cs_tutor)
+    identity, self_facts, worldview, episodic = typed_stores
+    pipeline = TypedRetrievalRAG(
+        backend=fake_backend,
+        knowledge_store=knowledge_store,
+        identity_store=identity,
+        self_facts_store=self_facts,
+        worldview_store=worldview,
+        episodic_store=episodic,
+    )
+    history = [
+        Turn(role="user", content="A short question."),
+        Turn(role="assistant", content="A short reply."),
+    ]
+    r = pipeline.respond("Another question.", cs_tutor, history=history)
+    assert r.metadata["trimmed_history_turns"] == 0
+
+
 # --------------------------------------------------------------- guards
 
 

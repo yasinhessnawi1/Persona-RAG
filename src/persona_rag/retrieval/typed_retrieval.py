@@ -157,8 +157,16 @@ class TypedRetrievalRAG:
             alpha=self.alpha,
         )
 
-        # 6. Build the system block, sized to the prompt budget. Persona-side
-        #    chunks are short enough that we trim only the knowledge leg.
+        # 6. Build the system block, sized to the prompt budget.
+        #
+        #    Three flexible buffers in the prompt: knowledge passages (drop
+        #    lowest-rank-first), conversation history (drop oldest pairs
+        #    first), and the typed-memory chunks themselves (which are
+        #    small + fixed-size for the shipped personas, so we don't trim
+        #    them). History trimming is required for long conversations:
+        #    Gemma2's sliding-window attention caches at 4096 tokens, so a
+        #    10-turn conversation with 256-token replies overflows the
+        #    cache by turn ~6 if history grows unbounded.
         system_text_no_knowledge = render_typed_system_block(
             identity_chunks=identity_chunks,
             constraint_chunks=constraint_chunks,
@@ -168,9 +176,27 @@ class TypedRetrievalRAG:
             knowledge_chunks=[],  # placeholder for sizing
             use_epistemic_tags=self.use_epistemic_tags,
         )
-        fixed_overhead = (
+        fixed_no_history = (
             estimate_token_count(system_text_no_knowledge) + estimate_token_count(query) + 64
         )
+        # Drop oldest history pairs until even an empty knowledge leg fits,
+        # leaving room for max_new_tokens + a safety margin.
+        prompt_budget = self.max_input_tokens - self.max_new_tokens - 128
+        trimmed_history: list[Turn] = list(history)
+        history_dropped = 0
+        while trimmed_history and (
+            fixed_no_history + _history_token_estimate(trimmed_history) > prompt_budget
+        ):
+            drop = 2 if len(trimmed_history) >= 2 else 1
+            trimmed_history = trimmed_history[drop:]
+            history_dropped += drop
+        if history_dropped:
+            logger.warning(
+                "typed_retrieval trimmed {} oldest conversation turn(s) to fit prompt budget",
+                history_dropped,
+            )
+
+        fixed_overhead = fixed_no_history + _history_token_estimate(trimmed_history)
         kept_knowledge, dropped = trim_chunks_to_token_budget(
             knowledge_chunks,
             fixed_overhead_tokens=fixed_overhead,
@@ -191,7 +217,7 @@ class TypedRetrievalRAG:
         )
 
         # 7. Render via the backend's role-aware formatter.
-        history_msgs = self._history_to_chat_messages(history) if history else None
+        history_msgs = self._history_to_chat_messages(trimmed_history) if trimmed_history else None
         prompt = self.backend.format_persona_prompt(
             system_text=system_text, user_text=query, history=history_msgs
         )
@@ -254,6 +280,7 @@ class TypedRetrievalRAG:
                 "top_k_knowledge": self.top_k_knowledge,
                 "fusion_mode": "rrf" if self.alpha is None else f"weighted_sum(alpha={self.alpha})",
                 "trimmed_chunks": dropped,
+                "trimmed_history_turns": history_dropped,
                 "worldview_epistemic_mix": dict(epi_mix),
                 "self_fact_chunk_ids": [c.id for c in self_fact_chunks],
                 "worldview_chunk_ids": [c.id for c in worldview_chunks],
@@ -395,6 +422,19 @@ def _count_epistemic_tags(chunks: list[PersonaChunk]) -> dict[str, int]:
         tag = c.metadata.get("epistemic", "unknown")
         out[tag] = out.get(tag, 0) + 1
     return out
+
+
+def _history_token_estimate(turns: list[Turn]) -> int:
+    """Cheap char-quartet token estimate of the rendered history block.
+
+    Approximates the role-prefixed concatenation the backend's
+    ``format_persona_prompt`` will emit (one line per turn, ``role: content``).
+    Worst-case under-counts on dense English; the call site adds a 128-token
+    safety margin on top.
+    """
+    if not turns:
+        return 0
+    return estimate_token_count("\n".join(f"{t.role}: {t.content}" for t in turns))
 
 
 __all__ = [
