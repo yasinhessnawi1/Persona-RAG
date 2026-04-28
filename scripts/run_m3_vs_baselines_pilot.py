@@ -116,14 +116,17 @@ def _build_rerank_judge() -> Any:
 
 
 def _bench_queries(persona_id: str) -> list[dict[str, Any]]:
-    """Pick 5 queries for one persona.
+    """Pick 5 queries for one persona, each carrying its conversation history.
 
     Two come from the drifting drift-trajectory conversation (annotated
-    ``clear`` or ``break`` drift_level — the strongest stress points). One
-    comes from the corresponding in_persona conversation as a control. Two
-    bucket-2 queries are appended on cs_tutor specifically (pilot
-    transferability check); for other personas the in_persona corpus
-    supplies the remaining slots.
+    ``clear`` or ``break`` drift_level — the strongest stress points). For
+    those, the history is threaded up to (but not including) the chosen
+    user turn — so the gate sees the *prior* assistant turn from the
+    drifting trajectory and can evaluate whether that prior turn drifted.
+    One comes from the corresponding in_persona conversation as a control
+    (turn 0; empty history). Up to two more in_persona user turns fill
+    the remaining slots, each with the preceding in_persona history
+    threaded so the comparison conditions are consistent across pipelines.
     """
     base = REPO_ROOT / "benchmarks_data" / "drift_trajectory" / persona_id
     drifting = DriftTrajectoryConversation.from_yaml(base / "drifting.yaml")
@@ -134,41 +137,50 @@ def _bench_queries(persona_id: str) -> list[dict[str, Any]]:
         if t.role == "assistant" and t.drift_level in ("clear", "break")
     ][:2]
     out: list[dict[str, Any]] = []
-    user_pairs = [t.text for t in drifting.turns if t.role == "user"]
     for ix in drift_indices:
         # User turn at index ix-1 prompted the drifting assistant turn ix.
+        # Thread turns 0 ... ix-2 as conversation history so the gate sees
+        # the prior assistant turn from the drifting trajectory.
         user_pos = ix - 1
         if 0 <= user_pos < len(drifting.turns):
+            history = [Turn(role=t.role, content=t.text) for t in drifting.turns[:user_pos]]
             out.append(
                 {
                     "id": f"{persona_id}_drift_t{ix // 2}",
                     "text": drifting.turns[user_pos].text,
                     "label": "drift_triggering",
-                    "history_pairs": (user_pos // 2),
+                    "history": history,
                 }
             )
-    # Add a control query from the in_persona corpus.
-    if user_pairs:
+    # Control: in_persona turn 0 with empty history.
+    in_persona_user_texts = in_persona.user_turn_texts()
+    if in_persona_user_texts:
         out.append(
             {
                 "id": f"{persona_id}_control",
-                "text": in_persona.user_turn_texts()[0],
+                "text": in_persona_user_texts[0],
                 "label": "in_persona_control",
-                "history_pairs": 0,
+                "history": [],
             }
         )
-    # Pad to 5 with extra in_persona user turns.
-    for ix, q in enumerate(in_persona.user_turn_texts()[1:]):
+    # Pad to 5 with extra in_persona user turns; each carries the
+    # preceding in_persona history so the gate has something to evaluate.
+    extra_count = 0
+    for ix, t in enumerate(in_persona.turns):
         if len(out) >= 5:
             break
+        if t.role != "user" or ix == 0:
+            continue
+        history = [Turn(role=tt.role, content=tt.text) for tt in in_persona.turns[:ix]]
         out.append(
             {
-                "id": f"{persona_id}_extra_{ix}",
-                "text": q,
+                "id": f"{persona_id}_extra_{extra_count}",
+                "text": t.text,
                 "label": "in_persona_extra",
-                "history_pairs": 0,
+                "history": history,
             }
         )
+        extra_count += 1
     return out[:5]
 
 
@@ -256,7 +268,7 @@ def main() -> int:
 
         records: list[dict[str, Any]] = []
         for q in bench:
-            history: list[Turn] = []
+            history: list[Turn] = list(q.get("history") or [])
             text = q["text"]
             entry: dict[str, Any] = {
                 "query_id": q["id"],
