@@ -73,6 +73,11 @@ dependencies = [
     #   avoided so the chunk contract stays symmetric with PersonaChunk.
     "bm25s>=0.2,<0.4",
     "llama-index-core>=0.14,<0.15",
+    # OpenAI-compatible HTTP client. Used by the API-tier judge backend
+    # (`persona_rag.models.glm_api.GlmApiBackend`) to talk to NVIDIA
+    # Build's free-tier OpenAI-compatible endpoint. Pinned conservatively
+    # against major version bumps that change the chat-completion shape.
+    "openai>=1.30,<2",
 ]
 
 [project.optional-dependencies]

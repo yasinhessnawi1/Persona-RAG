@@ -27,6 +27,7 @@ from typing import Any
 from loguru import logger
 
 from persona_rag.models import (
+    GlmApiBackend,
     LlamaBackend,
     PrometheusBackend,
     QwenBackend,
@@ -48,16 +49,25 @@ _JUDGE_SPECS: dict[str, dict[str, Any]] = {
         "backend_cls": LlamaBackend,
         "model_id": "meta-llama/Llama-3.1-8B-Instruct",
         "name": "llama3.1-8b-instruct",
+        "tier": "local",
     },
     "prometheus": {
         "backend_cls": PrometheusBackend,
         "model_id": "prometheus-eval/prometheus-7b-v2.0",
         "name": "prometheus-2-7b",
+        "tier": "local",
     },
     "qwen2.5": {
         "backend_cls": QwenBackend,
         "model_id": "Qwen/Qwen2.5-7B-Instruct",
         "name": "qwen2.5-7b-instruct",
+        "tier": "local",
+    },
+    "glm-api": {
+        "backend_cls": GlmApiBackend,
+        "model_id": "z-ai/glm4.7",
+        "name": "glm-4.7",
+        "tier": "api",
     },
 }
 
@@ -78,9 +88,14 @@ def _build_judge(name: str) -> Any:
         raise ValueError(f"--judge must be one of {sorted(_JUDGE_SPECS)}, got {name!r}")
     spec = _JUDGE_SPECS[name]
     backend_cls = spec["backend_cls"]
-    # Use the backend's own ``default_config`` so per-model attention /
-    # dtype overrides land (e.g. Qwen2.5 needs SDPA, not eager — eager +
-    # fp16 + 4-bit produces NaN logits on V100).
+    # API-tier judges have no quantization / dtype knobs — instantiate
+    # directly. The constructor reads the API key from the environment
+    # (or a repo-root .env file) and never accepts it as an argument.
+    if spec.get("tier") == "api":
+        return backend_cls(model_id=spec["model_id"], name=spec["name"])
+    # Local judges: use the backend's own ``default_config`` so per-model
+    # attention / dtype overrides land (e.g. Qwen2.5 needs SDPA, not
+    # eager — eager + fp16 + 4-bit produces NaN logits on V100).
     cfg = backend_cls.default_config(
         model_id=spec["model_id"],
         name=spec["name"],
