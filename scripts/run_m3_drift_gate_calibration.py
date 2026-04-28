@@ -27,7 +27,6 @@ from typing import Any
 from loguru import logger
 
 from persona_rag.models import (
-    HFBackendConfig,
     LlamaBackend,
     PrometheusBackend,
     QwenBackend,
@@ -78,12 +77,14 @@ def _build_judge(name: str) -> Any:
     if name not in _JUDGE_SPECS:
         raise ValueError(f"--judge must be one of {sorted(_JUDGE_SPECS)}, got {name!r}")
     spec = _JUDGE_SPECS[name]
-    cfg = HFBackendConfig(
+    backend_cls = spec["backend_cls"]
+    # Use the backend's own ``default_config`` so per-model attention /
+    # dtype overrides land (e.g. Qwen2.5 needs SDPA, not eager — eager +
+    # fp16 + 4-bit produces NaN logits on V100).
+    cfg = backend_cls.default_config(
         model_id=spec["model_id"],
         name=spec["name"],
         revision=None,
-        compute_dtype="float16",
-        attn_implementation="eager",
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
@@ -91,7 +92,7 @@ def _build_judge(name: str) -> Any:
         trust_remote_code=False,
         warmup_nan_guard=True,
     )
-    return spec["backend_cls"](cfg)
+    return backend_cls(cfg)
 
 
 def _load_conversations(persona_id: str) -> dict[str, DriftTrajectoryConversation]:
