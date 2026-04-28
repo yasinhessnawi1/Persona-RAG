@@ -24,7 +24,12 @@ from typing import Any
 
 from loguru import logger
 
-from persona_rag.models import GemmaBackend, HFBackendConfig, LlamaBackend
+from persona_rag.models import (
+    GemmaBackend,
+    HFBackendConfig,
+    PrometheusBackend,
+    QwenBackend,
+)
 from persona_rag.retrieval import (
     CharacterRMScorer,
     DriftGatedMechanism,
@@ -67,21 +72,47 @@ def _build_responder() -> Any:
     return GemmaBackend(cfg)
 
 
-def _build_judge() -> Any:
-    cfg = HFBackendConfig(
-        model_id="meta-llama/Llama-3.1-8B-Instruct",
-        name="llama3.1-8b-instruct",
-        revision=None,
-        compute_dtype="float16",
-        attn_implementation="eager",
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True,
-        max_input_tokens=4096,
-        trust_remote_code=False,
-        warmup_nan_guard=True,
+def _build_gate_judge() -> Any:
+    """Qwen2.5-7B-Instruct as the gate-judge (per the cross-tier sweep verdict).
+
+    SDPA attention via QwenBackend.default_config — eager + fp16 + 4-bit
+    triggers NaN logits on V100 for Qwen's bf16-trained weights.
+    """
+    return QwenBackend(
+        QwenBackend.default_config(
+            model_id="Qwen/Qwen2.5-7B-Instruct",
+            name="qwen2.5-7b-instruct",
+            revision=None,
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            max_input_tokens=4096,
+            trust_remote_code=False,
+            warmup_nan_guard=True,
+        )
     )
-    return LlamaBackend(cfg)
+
+
+def _build_rerank_judge() -> Any:
+    """Prometheus-2-7B as the rerank-judge (cross-family from the gate-judge).
+
+    The rerank prompt is the rubric-format `[RESULT] X` shape Prometheus
+    is trained on, so the format-mismatch failure mode the gate sweep
+    surfaced does not apply here.
+    """
+    return PrometheusBackend(
+        PrometheusBackend.default_config(
+            model_id="prometheus-eval/prometheus-7b-v2.0",
+            name="prometheus-2-7b",
+            revision=None,
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            max_input_tokens=4096,
+            trust_remote_code=False,
+            warmup_nan_guard=True,
+        )
+    )
 
 
 def _bench_queries(persona_id: str) -> list[dict[str, Any]]:
@@ -158,7 +189,8 @@ def main() -> int:
     out_root.mkdir(parents=True, exist_ok=True)
 
     responder = _build_responder()
-    judge = _build_judge()
+    gate_judge = _build_gate_judge()
+    rerank_judge = _build_rerank_judge()
 
     summary: dict[str, Any] = {"per_persona": {}}
     for pid in persona_ids:
@@ -212,8 +244,14 @@ def main() -> int:
             worldview_store=typed_stores[2],
             episodic_store=typed_stores[3],
         )
-        gate = LlmJudgeDriftGate(judge=judge, confidence_threshold=0.5)
-        ranker = HybridRanker(character_rm=CharacterRMScorer(), rerank_judge=judge)
+        gate = LlmJudgeDriftGate(judge=gate_judge, confidence_threshold=0.5)
+        # CharacterRM disabled (custom-class loader unavailable on HF +
+        # V100 memory budget). 1-signal judge-only re-rank.
+        ranker = HybridRanker(
+            character_rm=CharacterRMScorer(),
+            rerank_judge=rerank_judge,
+            enabled_signals=("judge",),
+        )
         m3 = DriftGatedMechanism(backend=responder, m1=m1, drift_gate=gate, hybrid_ranker=ranker)
 
         records: list[dict[str, Any]] = []
