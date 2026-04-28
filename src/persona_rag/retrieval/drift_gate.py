@@ -46,13 +46,20 @@ class LlmJudgeDriftGate:
     flag of ``drift`` with confidence ``>= 0.5`` triggers the gated path.
     The threshold sweep at evaluation time reports gate behaviour at a
     range of thresholds.
+
+    `retry_on_malformed` controls a single-retry path: when the parser
+    fails on both JSON and the regex fallback, the gate re-issues the
+    same prompt once (no template change). Helps the model recover from
+    a one-off generation glitch (multi-output answers, code-fence noise,
+    early stop) without paying the cost on every turn.
     """
 
     judge: LLMBackend
     confidence_threshold: float = 0.5
     history_window: int = DEFAULT_HISTORY_WINDOW
-    max_new_tokens: int = 96
+    max_new_tokens: int = 256
     temperature: float = 0.0
+    retry_on_malformed: bool = True
 
     @property
     def name(self) -> str:
@@ -109,12 +116,24 @@ class LlmJudgeDriftGate:
             raw,
             confidence_threshold=self.confidence_threshold,
         )
+        if check.malformed and self.retry_on_malformed:
+            logger.warning("drift_gate: malformed response; retrying once")
+            raw = self.judge.generate(
+                prompt,
+                max_new_tokens=self.max_new_tokens,
+                temperature=self.temperature,
+            )
+            check = parse_drift_gate_response(
+                raw,
+                confidence_threshold=self.confidence_threshold,
+            )
         logger.info(
-            "drift_gate: flag={} confidence={:.2f} should_gate={} (threshold={:.2f})",
+            "drift_gate: flag={} confidence={:.2f} should_gate={} (threshold={:.2f}){}",
             check.flag,
             check.confidence,
             check.should_gate,
             self.confidence_threshold,
+            " [malformed-after-retry]" if check.malformed else "",
         )
         return check
 

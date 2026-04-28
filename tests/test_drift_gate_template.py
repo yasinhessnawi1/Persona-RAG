@@ -40,22 +40,22 @@ def test_render_includes_persona_constraints_and_worldview(cs_tutor: Persona) ->
         current_user_turn="Should I use Rust or Python?",
         last_assistant_turn="Build a key-value store.",
     )
-    # Persona name, role, and the structured "must NOT" header all appear.
+    # Persona name + structured constraint header.
     assert cs_tutor.identity.name in prompt
-    assert "You must NOT:" in prompt
-    # Worldview epistemic tag rendering follows M1's style.
-    assert "Your views" in prompt
-    # Output instructions are present and explicit.
-    assert "flag: drift|ok" in prompt
-    assert "confidence:" in prompt
-    assert "rationale:" in prompt
+    assert "Constraints (you must NOT):" in prompt
+    assert "Self-facts:" in prompt
+    assert "Worldview" in prompt
+    # Four-axis check + output format.
+    assert "self_facts_check" in prompt
+    assert "worldview_check" in prompt
+    assert "constraint_check" in prompt
+    assert "epistemic_check" in prompt
+    assert '"flag"' in prompt
+    assert '"confidence"' in prompt
 
 
-def test_render_includes_recent_history_window(cs_tutor: Persona) -> None:
-    """The windowed history block lists older turns oldest-first."""
-    # 3 prior pairs + the current pair = 8 turns. With history_window=4 the
-    # gate sees the most-recent 4 of the older turns (excluding the current
-    # pair which is surfaced as "Most recent user/assistant turn:").
+def test_render_includes_prior_context_window(cs_tutor: Persona) -> None:
+    """The windowed prior context lists older turns oldest-first."""
     older = [
         Turn(role="user", content="Earlier question."),
         Turn(role="assistant", content="Earlier answer."),
@@ -72,26 +72,26 @@ def test_render_includes_recent_history_window(cs_tutor: Persona) -> None:
         last_assistant_turn="Current assistant turn",
         history_window=4,
     )
-    assert "Recent conversation" in prompt
+    assert "PRIOR CONTEXT" in prompt
     # Older turn content survives the window cut.
     assert "Recent question." in prompt
     assert "Recent answer." in prompt
     # Current pair surfaces under explicit headers, not the windowed block.
-    assert "Most recent user turn:" in prompt
-    assert "Most recent assistant turn:" in prompt
+    assert "THE USER MESSAGE THE ASSISTANT IS RESPONDING TO:" in prompt
+    assert "THE TURN TO EVALUATE" in prompt
     assert "Current user turn" in prompt
     assert "Current assistant turn" in prompt
 
 
 def test_render_handles_turn_zero(cs_tutor: Persona) -> None:
-    """No prior assistant turn → explicit (none — turn 0) framing."""
+    """No prior assistant turn → explicit (none) framing."""
     prompt = render_drift_gate_prompt(
         persona=cs_tutor,
         history=[],
         current_user_turn="First question",
         last_assistant_turn=None,
     )
-    assert "Most recent assistant turn: (none — this is turn 0)" in prompt
+    assert "THE TURN TO EVALUATE: (none" in prompt
 
 
 # --------------------------------------------------------- response parser
@@ -145,3 +145,81 @@ def test_parse_drift_response_tolerates_case_and_whitespace() -> None:
     assert check.flag == "drift"
     assert check.confidence == 0.6
     assert check.should_gate is True
+    # Legacy format: no axis_breakdown.
+    assert check.axis_breakdown == {}
+
+
+# --------------------------------------------------------- JSON path
+
+
+def test_parse_drift_response_json_drift_with_axes() -> None:
+    raw = """
+    {
+      "self_facts_check":  {"violated": false, "note": ""},
+      "worldview_check":   {"violated": true,  "note": "endorses contested microservices claim"},
+      "constraint_check":  {"violated": false, "note": ""},
+      "epistemic_check":   {"violated": true,  "note": "states uncertain claim as fact"},
+      "flag": "drift",
+      "confidence": 0.85,
+      "rationale": "Two axes violated."
+    }
+    """
+    check = parse_drift_gate_response(raw, confidence_threshold=0.5)
+    assert check.flag == "drift"
+    assert check.confidence == 0.85
+    assert check.should_gate is True
+    assert check.axis_breakdown["worldview_check"]["violated"] is True
+    assert check.axis_breakdown["epistemic_check"]["violated"] is True
+    assert check.axis_breakdown["self_facts_check"]["violated"] is False
+    assert check.axis_breakdown["constraint_check"]["violated"] is False
+
+
+def test_parse_drift_response_json_ok() -> None:
+    raw = '{"flag": "ok", "confidence": 0.92, "rationale": "clean"}'
+    check = parse_drift_gate_response(raw, confidence_threshold=0.5)
+    assert check.flag == "ok"
+    assert check.should_gate is False
+
+
+def test_parse_drift_response_json_strips_code_fences() -> None:
+    raw = '```json\n{"flag": "drift", "confidence": 0.7, "rationale": "x"}\n```'
+    check = parse_drift_gate_response(raw, confidence_threshold=0.5)
+    assert check.flag == "drift"
+    assert check.confidence == 0.7
+    assert check.should_gate is True
+
+
+def test_parse_drift_response_json_malformed_falls_back_to_regex() -> None:
+    """Invalid JSON but a parseable legacy regex format still parses."""
+    raw = "{ broken json followed by\nflag: drift\nconfidence: 0.9\nrationale: legacy"
+    check = parse_drift_gate_response(raw, confidence_threshold=0.5)
+    assert check.flag == "drift"
+    assert check.confidence == 0.9
+    assert check.should_gate is True
+
+
+def test_parse_drift_response_completely_malformed_marks_malformed() -> None:
+    """Both JSON and regex fail: ``malformed=True``, defaults to ok."""
+    check = parse_drift_gate_response(
+        "the model produced narrative prose", confidence_threshold=0.5
+    )
+    assert check.malformed is True
+    assert check.flag == "ok"
+    assert check.should_gate is False
+
+
+def test_parse_drift_response_json_clamps_confidence() -> None:
+    raw = '{"flag": "drift", "confidence": 1.7, "rationale": "x"}'
+    check = parse_drift_gate_response(raw, confidence_threshold=0.5)
+    assert 0.0 <= check.confidence <= 1.0
+
+
+def test_parse_drift_response_json_picks_first_balanced_block() -> None:
+    """Multi-output bug: model emits two JSON blocks. Parser takes the first."""
+    raw = (
+        '{"flag": "drift", "confidence": 0.8, "rationale": "first"}\n'
+        '{"flag": "ok", "confidence": 0.5, "rationale": "second"}'
+    )
+    check = parse_drift_gate_response(raw, confidence_threshold=0.5)
+    assert check.flag == "drift"
+    assert check.confidence == 0.8

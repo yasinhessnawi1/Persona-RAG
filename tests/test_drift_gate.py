@@ -98,7 +98,11 @@ def test_turn_zero_no_judge_call(cs_tutor: Persona) -> None:
 
 def test_malformed_judge_response_defaults_to_cheap_path(cs_tutor: Persona) -> None:
     judge = _CannedJudge("the model produced narrative prose with no structure")
-    gate = LlmJudgeDriftGate(judge=judge, confidence_threshold=0.5)
+    gate = LlmJudgeDriftGate(
+        judge=judge,
+        confidence_threshold=0.5,
+        retry_on_malformed=False,  # exercise default-to-ok directly
+    )
     history = [
         Turn(role="user", content="x"),
         Turn(role="assistant", content="y"),
@@ -106,6 +110,77 @@ def test_malformed_judge_response_defaults_to_cheap_path(cs_tutor: Persona) -> N
     check = gate.check(persona=cs_tutor, query="q", history=history)
     assert check.should_gate is False
     assert check.flag == "ok"
+    assert check.malformed is True
+
+
+class _SequentialJudge:
+    """Returns one canned response per call from a list."""
+
+    name = "sequential-judge"
+    model_id = "fake/sequential-judge"
+    num_layers = 0
+    hidden_dim = 0
+
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.calls = 0
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        out = self.responses[self.calls]
+        self.calls += 1
+        return out
+
+
+def test_gate_retries_once_on_malformed_response(cs_tutor: Persona) -> None:
+    """First response is malformed; gate retries; second response parses."""
+    judge = _SequentialJudge(
+        [
+            "garbage with no structure",
+            '{"flag": "drift", "confidence": 0.9, "rationale": "second-try succeeded"}',
+        ]
+    )
+    gate = LlmJudgeDriftGate(judge=judge, confidence_threshold=0.5)
+    history = [
+        Turn(role="user", content="x"),
+        Turn(role="assistant", content="y"),
+    ]
+    check = gate.check(persona=cs_tutor, query="q", history=history)
+    assert judge.calls == 2
+    assert check.flag == "drift"
+    assert check.should_gate is True
+    assert check.malformed is False
+
+
+def test_gate_does_not_retry_when_disabled(cs_tutor: Persona) -> None:
+    """``retry_on_malformed=False`` keeps the gate single-call on malformed."""
+    judge = _CannedJudge("garbage")
+    gate = LlmJudgeDriftGate(
+        judge=judge,
+        confidence_threshold=0.5,
+        retry_on_malformed=False,
+    )
+    history = [
+        Turn(role="user", content="x"),
+        Turn(role="assistant", content="y"),
+    ]
+    gate.check(persona=cs_tutor, query="q", history=history)
+    # Only one call to the judge.
+    assert len(judge.prompts) == 1
+
+
+def test_gate_double_malformed_defaults_to_ok(cs_tutor: Persona) -> None:
+    """Both first and retry responses malformed: ``malformed=True``, ok."""
+    judge = _SequentialJudge(["garbage one", "garbage two"])
+    gate = LlmJudgeDriftGate(judge=judge, confidence_threshold=0.5)
+    history = [
+        Turn(role="user", content="x"),
+        Turn(role="assistant", content="y"),
+    ]
+    check = gate.check(persona=cs_tutor, query="q", history=history)
+    assert judge.calls == 2
+    assert check.malformed is True
+    assert check.flag == "ok"
+    assert check.should_gate is False
 
 
 def test_threshold_is_configurable(cs_tutor: Persona) -> None:
