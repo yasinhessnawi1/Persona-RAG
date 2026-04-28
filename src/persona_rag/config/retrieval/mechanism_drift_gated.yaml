@@ -28,10 +28,11 @@ gate:
 
 # ---- Hybrid ranker ----
 hybrid_ranker:
-  # First-class fallback: drop "character_rm" if the reward model's
-  # English competency is found wanting. The default ships with both
-  # signals; ["judge"] is the documented fallback path.
-  enabled_signals: ["character_rm", "judge"]
+  # 1-signal LLM-judge re-rank. The 2-signal alternative
+  # (["character_rm", "judge"]) is supported by the code path; flip back
+  # if the reward model's loader and GPU footprint are addressed (vendored
+  # custom-class loader + 4-bit quant + judge offload between calls).
+  enabled_signals: ["judge"]
   weights:
     character_rm: 0.5
     judge: 0.5
