@@ -1,0 +1,77 @@
+# Drift-gated hybrid retrieval mechanism.
+#
+# Cheap path: an LLM-judge gate decides each turn drift/ok; on ok, the
+# responder produces the reply (2 LLM calls).
+# Gated path: on drift, retrieval re-keys on the drifted-turn content,
+# extra candidates are generated at varied temperatures, and the 2-signal
+# hybrid ranker (reward model + cross-family LLM judge) picks the best.
+#
+# All knobs are Hydra-controllable; per-turn metadata records every choice.
+name: drift_gated
+type: m3
+
+# ---- Drift gate ----
+gate:
+  # Cheapest of the project's evaluator panel; called every turn.
+  # Cross-family from the rerank judge to avoid double-counting the same
+  # model's preferences in both gating and ranking.
+  judge_model: meta-llama/Llama-3.1-8B-Instruct
+  judge_name: llama-3.1-8b
+  # Confidence threshold for the gate to fire. Tuned via the calibration
+  # sweep at evaluation time; default 0.5.
+  confidence_threshold: 0.5
+  # History window threaded into the gate prompt (turns; 4 = two prior pairs).
+  history_window: 4
+  # Generation budget for the structured 3-line response.
+  max_new_tokens: 96
+  temperature: 0.0
+
+# ---- Hybrid ranker ----
+hybrid_ranker:
+  # First-class fallback: drop "character_rm" if the reward model's
+  # English competency is found wanting. The default ships with both
+  # signals; ["judge"] is the documented fallback path.
+  enabled_signals: ["character_rm", "judge"]
+  weights:
+    character_rm: 0.5
+    judge: 0.5
+  character_rm:
+    # CharacterEval reward model (Baichuan-based instruct backbone).
+    model_id: morecry/BaichuanCharRM
+    device: cuda
+    max_input_tokens: 2048
+  rerank_judge:
+    # Purpose-built evaluator (Mistral-Instruct base). Different family
+    # from the gate's Llama-3.1-8B.
+    model_id: prometheus-eval/prometheus-7b-v2.0
+    name: prometheus-2-7b
+    max_new_tokens: 64
+    temperature: 0.0
+
+# ---- Candidate generation ----
+# n_candidates ranks 3 total: baseline (1, greedy via the responder's
+# config) plus (n_candidates - 1) additional candidates at
+# extra_candidate_temperatures. The N sweep at evaluation time covers
+# {1, 3, 5}.
+n_candidates: 3
+extra_candidate_temperatures: [0.7, 1.0]
+extra_candidate_max_new_tokens: null  # null → reuse the responder's max_new_tokens
+
+# ---- Cheap-path responder settings ----
+# Mirrors config/retrieval/typed_retrieval.yaml. The mechanism calls the
+# typed-retrieval responder with augment_for_drift=true on the gated path;
+# the rest of its behaviour is unchanged.
+m1:
+  use_identity_every_turn: true
+  use_epistemic_tags: true
+  use_episodic: false
+  write_episodic: false
+  epistemic_allowlist: ["fact", "belief", "hypothesis", "contested"]
+  top_k_self_facts: 3
+  top_k_worldview: 3
+  top_k_episodic: 0
+  top_k_knowledge: 5
+  candidate_pool: 20
+  alpha: null
+  max_new_tokens: 256
+  max_input_tokens: 4096

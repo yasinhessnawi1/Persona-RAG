@@ -106,8 +106,23 @@ class TypedRetrievalRAG:
         history: list[Turn] | None = None,
         *,
         seed: int | None = None,
+        augment_for_drift: bool = False,
     ) -> Response:
-        """Run the typed-retrieval pipeline end-to-end for one query."""
+        """Run the typed-retrieval pipeline end-to-end for one query.
+
+        ``augment_for_drift`` is the gated-path entry point used by the
+        drift-gated mechanism. When ``True`` and ``history`` contains a
+        prior assistant turn, the *retrieval-side* query becomes the
+        concatenation of the current user turn and the most-recent
+        assistant turn — surfacing persona content semantically adjacent to
+        the drifted assistant content. The user-facing prompt the LLM sees
+        is unchanged (still the original ``query``), so the responder's
+        prompt structure stays identical to cheap-path turns; quality
+        differences attribute to retrieval shift plus candidate diversity
+        rather than to a prompt-structure shift. On the first turn (no
+        prior assistant) the augmentation falls back to the unaugmented
+        query — there is nothing to drift from.
+        """
         if persona.persona_id is None:
             raise ValueError(
                 "Persona.persona_id is None — cannot route typed-store retrieval without it."
@@ -115,11 +130,28 @@ class TypedRetrievalRAG:
         history = history or []
         turn_ix = len(history) // 2  # one round-trip = user + assistant turn
 
+        # Build the retrieval-side query. For the cheap path this is just
+        # ``query``; for the gated path it concatenates the current user turn
+        # with the most-recent assistant turn so retrieval re-keys on the
+        # drifted-turn content. The LLM-facing user message stays ``query``
+        # unchanged.
+        retrieval_query = query
+        last_assistant: str | None = None
+        if augment_for_drift:
+            for prev in reversed(history):
+                if prev.role == "assistant":
+                    last_assistant = prev.content
+                    break
+            if last_assistant is not None:
+                retrieval_query = f"{query} {last_assistant}".strip()
+
         # 1. Identity + constraints (always retrieved when ID-RAG on; only
         #    on turn 0 otherwise — the ID-RAG ablation).
         id_rag_fired = self.use_identity_every_turn or turn_ix == 0
         if id_rag_fired:
-            id_chunks = self.identity_store.query(query, top_k=1, persona_id=persona.persona_id)
+            id_chunks = self.identity_store.query(
+                retrieval_query, top_k=1, persona_id=persona.persona_id
+            )
         else:
             id_chunks = []
         identity_chunks = [c for c in id_chunks if c.kind == "identity"]
@@ -129,14 +161,16 @@ class TypedRetrievalRAG:
         self_fact_chunks: list[PersonaChunk] = []
         if self.top_k_self_facts > 0:
             self_fact_chunks = self.self_facts_store.query(
-                query, top_k=self.top_k_self_facts, persona_id=persona.persona_id
+                retrieval_query,
+                top_k=self.top_k_self_facts,
+                persona_id=persona.persona_id,
             )
 
         # 3. Worldview with epistemic-tag filter.
         worldview_chunks: list[PersonaChunk] = []
         if self.top_k_worldview > 0:
             worldview_chunks = self.worldview_store.query(
-                query,
+                retrieval_query,
                 top_k=self.top_k_worldview,
                 persona_id=persona.persona_id,
                 epistemic=list(self.epistemic_allowlist) if self.epistemic_allowlist else None,
@@ -146,12 +180,12 @@ class TypedRetrievalRAG:
         episodic_chunks: list[PersonaChunk] = []
         if self.use_episodic and self.top_k_episodic > 0:
             episodic_chunks = self.episodic_store.query(
-                query, top_k=self.top_k_episodic, persona_id=persona.persona_id
+                retrieval_query, top_k=self.top_k_episodic, persona_id=persona.persona_id
             )
 
         # 5. Knowledge — hybrid retrieval (unchanged from B1/B2).
         knowledge_chunks = self.knowledge_store.query_hybrid(
-            query,
+            retrieval_query,
             top_k=self.top_k_knowledge,
             candidate_pool=self.candidate_pool,
             alpha=self.alpha,
@@ -270,6 +304,7 @@ class TypedRetrievalRAG:
                 "turn_id": turn_ix,
                 "id_rag_fired": id_rag_fired,
                 "use_identity_every_turn": self.use_identity_every_turn,
+                "augmented_for_drift": augment_for_drift and last_assistant is not None,
                 "use_epistemic_tags": self.use_epistemic_tags,
                 "use_episodic": self.use_episodic,
                 "write_episodic": self.write_episodic,

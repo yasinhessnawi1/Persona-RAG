@@ -26,7 +26,11 @@ from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 
 from persona_rag.retrieval import (
+    CharacterRMScorer,
+    DriftGatedMechanism,
     FewShotBundle,
+    HybridRanker,
+    LlmJudgeDriftGate,
     PromptPersonaRAG,
     Response,
     TypedRetrievalRAG,
@@ -161,7 +165,108 @@ def _build_baseline(
             max_input_tokens=int(rcfg.max_input_tokens),
             name=str(rcfg.name),
         )
-    raise ValueError(f"Unknown retrieval.type {btype!r} — expected b1, b2, or m1")
+    if btype == "m3":
+        return _build_m3(cfg, backend, knowledge_store, persona)
+    raise ValueError(f"Unknown retrieval.type {btype!r} — expected b1, b2, m1, or m3")
+
+
+def _build_m3(
+    cfg: DictConfig,
+    backend: Any,
+    knowledge_store: KnowledgeStore,
+    persona: Persona,
+) -> DriftGatedMechanism:
+    """Construct the drift-gated mechanism from Hydra config.
+
+    Builds the responder (typed-retrieval pipeline) on the same backend as
+    the rest of the run. The gate judge and rerank judge load on demand;
+    callers supply different model ids in the config, so we instantiate
+    each through ``persona_rag.models``' factory pattern (mirroring
+    ``_build_backend``).
+    """
+    from persona_rag.models import GemmaBackend, HFBackendConfig, LlamaBackend
+
+    rcfg = cfg.retrieval
+    identity, self_facts, worldview, episodic = _build_typed_memory(cfg, persona)
+    m1 = TypedRetrievalRAG(
+        backend=backend,
+        knowledge_store=knowledge_store,
+        identity_store=identity,
+        self_facts_store=self_facts,
+        worldview_store=worldview,
+        episodic_store=episodic,
+        use_identity_every_turn=bool(rcfg.m1.use_identity_every_turn),
+        use_epistemic_tags=bool(rcfg.m1.use_epistemic_tags),
+        use_episodic=bool(rcfg.m1.use_episodic),
+        write_episodic=bool(rcfg.m1.write_episodic),
+        epistemic_allowlist=tuple(rcfg.m1.epistemic_allowlist),
+        top_k_self_facts=int(rcfg.m1.top_k_self_facts),
+        top_k_worldview=int(rcfg.m1.top_k_worldview),
+        top_k_episodic=int(rcfg.m1.top_k_episodic),
+        top_k_knowledge=int(rcfg.m1.top_k_knowledge),
+        candidate_pool=int(rcfg.m1.candidate_pool),
+        alpha=rcfg.m1.alpha,
+        max_new_tokens=int(rcfg.m1.max_new_tokens),
+        max_input_tokens=int(rcfg.m1.max_input_tokens),
+    )
+
+    def _build_judge_backend(model_id: str, name: str) -> Any:
+        judge_cfg = HFBackendConfig(
+            model_id=model_id,
+            name=name,
+            revision=None,
+            compute_dtype="float16",
+            attn_implementation="eager",
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            max_input_tokens=4096,
+            trust_remote_code=False,
+            warmup_nan_guard=True,
+        )
+        if name.startswith("llama"):
+            return LlamaBackend(judge_cfg)
+        if name.startswith("gemma"):
+            return GemmaBackend(judge_cfg)
+        # Fallback: Llama loader covers most Mistral/Prometheus-style decoders.
+        return LlamaBackend(judge_cfg)
+
+    gate_judge = _build_judge_backend(str(rcfg.gate.judge_model), str(rcfg.gate.judge_name))
+    rerank_judge = _build_judge_backend(
+        str(rcfg.hybrid_ranker.rerank_judge.model_id),
+        str(rcfg.hybrid_ranker.rerank_judge.name),
+    )
+    drift_gate = LlmJudgeDriftGate(
+        judge=gate_judge,
+        confidence_threshold=float(rcfg.gate.confidence_threshold),
+        history_window=int(rcfg.gate.history_window),
+        max_new_tokens=int(rcfg.gate.max_new_tokens),
+        temperature=float(rcfg.gate.temperature),
+    )
+    char_rm = CharacterRMScorer(
+        model_id=str(rcfg.hybrid_ranker.character_rm.model_id),
+        device=str(rcfg.hybrid_ranker.character_rm.device),
+        max_input_tokens=int(rcfg.hybrid_ranker.character_rm.max_input_tokens),
+    )
+    ranker = HybridRanker(
+        character_rm=char_rm,
+        rerank_judge=rerank_judge,
+        weights=dict(rcfg.hybrid_ranker.weights),
+        enabled_signals=tuple(rcfg.hybrid_ranker.enabled_signals),
+        judge_max_new_tokens=int(rcfg.hybrid_ranker.rerank_judge.max_new_tokens),
+        judge_temperature=float(rcfg.hybrid_ranker.rerank_judge.temperature),
+    )
+    extra_temps = tuple(float(t) for t in rcfg.extra_candidate_temperatures)
+    return DriftGatedMechanism(
+        backend=backend,
+        m1=m1,
+        drift_gate=drift_gate,
+        hybrid_ranker=ranker,
+        n_candidates=int(rcfg.n_candidates),
+        extra_candidate_temperatures=extra_temps,
+        extra_candidate_max_new_tokens=rcfg.extra_candidate_max_new_tokens,
+        name=str(rcfg.name),
+    )
 
 
 def _build_typed_memory(

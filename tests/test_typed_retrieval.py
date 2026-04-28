@@ -436,6 +436,82 @@ def test_short_history_is_not_trimmed(fake_backend, knowledge_store, typed_store
     assert r.metadata["trimmed_history_turns"] == 0
 
 
+# --------------------------------------------------------------- augment_for_drift
+
+
+def test_augment_for_drift_changes_retrieval_query(
+    fake_backend, knowledge_store, typed_stores, cs_tutor
+):
+    """Gated path re-keys retrieval on user_turn + last_assistant_turn."""
+    _index_persona(typed_stores, cs_tutor)
+    identity, self_facts, worldview, episodic = typed_stores
+
+    class _Recorder:
+        """Wraps a store and records every query() call."""
+
+        def __init__(self, inner):
+            self.inner = inner
+            self.queries: list[str] = []
+
+        def query(self, query, **kwargs):
+            self.queries.append(query)
+            return self.inner.query(query, **kwargs)
+
+        def index(self, *a, **kw):
+            return self.inner.index(*a, **kw)
+
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+
+    rec_self = _Recorder(self_facts)
+    rec_world = _Recorder(worldview)
+    pipeline = TypedRetrievalRAG(
+        backend=fake_backend,
+        knowledge_store=knowledge_store,
+        identity_store=identity,
+        self_facts_store=rec_self,
+        worldview_store=rec_world,
+        episodic_store=episodic,
+    )
+    history = [
+        Turn(role="user", content="earlier prompt"),
+        Turn(role="assistant", content="earlier off-voice reply"),
+    ]
+    pipeline.respond(
+        "next user question",
+        cs_tutor,
+        history=history,
+        augment_for_drift=True,
+    )
+    # Augmented retrieval-side query is concat of user + last assistant.
+    assert rec_self.queries
+    assert rec_world.queries
+    assert "next user question" in rec_self.queries[0]
+    assert "earlier off-voice reply" in rec_self.queries[0]
+    assert "next user question" in rec_world.queries[0]
+    assert "earlier off-voice reply" in rec_world.queries[0]
+
+
+def test_augment_for_drift_falls_back_on_turn_zero(
+    fake_backend, knowledge_store, typed_stores, cs_tutor
+):
+    """Turn 0 has no prior assistant; augment flag should fall back to plain query."""
+    _index_persona(typed_stores, cs_tutor)
+    identity, self_facts, worldview, episodic = typed_stores
+    pipeline = TypedRetrievalRAG(
+        backend=fake_backend,
+        knowledge_store=knowledge_store,
+        identity_store=identity,
+        self_facts_store=self_facts,
+        worldview_store=worldview,
+        episodic_store=episodic,
+    )
+    r = pipeline.respond("first question", cs_tutor, augment_for_drift=True)
+    # No fallback flag claimed in metadata — augmentation only applies when
+    # an assistant turn actually exists in history.
+    assert r.metadata["augmented_for_drift"] is False
+
+
 # --------------------------------------------------------------- guards
 
 
