@@ -83,6 +83,12 @@ dependencies = [
     # data with NaN for missing scores; this is what we need for
     # 1-5 ordinal rubric scoring across the PoLL panel + human raters.
     "krippendorff>=0.6,<1",
+    # Hugging Face `datasets` is needed only by the PersonaChat benchmark
+    # loader (`persona_rag.benchmarks.personachat`). Pinned to the 3.x line
+    # because 4.x is pre-release and ships breaking changes to the
+    # `load_dataset` builder discovery path. Pulls in pyarrow (darwin-arm64
+    # wheels are published) but no other heavyweight transitive.
+    "datasets>=3,<4",
 ]
 
 [project.optional-dependencies]

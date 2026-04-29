@@ -82,9 +82,7 @@ def _cmd_export(args: argparse.Namespace) -> int:
                 persona_id=args.persona,
             )
             if not convs:
-                logger.warning(
-                    "no conversations for {} in records-bundle {}", mech, records_path
-                )
+                logger.warning("no conversations for {} in records-bundle {}", mech, records_path)
                 continue
             # If a per-mechanism dir was also passed, prefer the dir's data
             # (more conversations typically); else use records-bundle data.

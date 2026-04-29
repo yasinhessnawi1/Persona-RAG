@@ -47,6 +47,7 @@ from persona_rag.evaluation.poll_panel import (
     run_judge_sweep,
     write_combined_summary,
 )
+from persona_rag.evaluation.probe_runner import ProbeInjectionLog, ProbeRunner
 from persona_rag.evaluation.refchecker_metric import (
     RefCheckerMetric,
     is_refchecker_available,
@@ -96,6 +97,8 @@ __all__ = [
     "MiniCheckScorer",
     "PerJudgeConversationScore",
     "PoLLPanel",
+    "ProbeInjectionLog",
+    "ProbeRunner",
     "RefCheckerMetric",
     "ScoredTurn",
     "Stance",

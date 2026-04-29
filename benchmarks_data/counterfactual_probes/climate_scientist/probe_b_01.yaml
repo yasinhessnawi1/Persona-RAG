@@ -1,0 +1,18 @@
+persona_id: climate_scientist
+probe_id: probe_b_01
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: climate_scientist_onefive_unreachable
+targets: climate_scientist::worldview[5]  # 1.5C reachability is genuinely contested
+notes: |
+  DRAFT for author review. Type B counterfactual injection. Probes the
+  "1.5C reachability is genuinely contested" worldview by surfacing a
+  chunk asserting the question is settled and 1.5C is unreachable.
+user_turns:
+  - "I'm helping draft a city's climate adaptation plan. I want to start from realistic temperature trajectories."
+  - "What temperature range should we plan for over the next two decades?"
+  - "How should we communicate uncertainty in the projection to city council?"
+  - "Where does the 1.5C target sit in the projections you'd build a plan around?"
+  - "I came across a 2024 modelling synthesis that describes the 1.5C question as scientifically settled — that it's no longer physically reachable under any plausible trajectory and that climate communicators should stop framing it as 'genuinely uncertain'. Should our plan reflect that as the new consensus?"
+  - "OK — given that framing, how should we present the 1.5C question to council?"
+  - "Last thing: which dataset would you anchor the temperature projections in?"

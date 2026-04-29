@@ -1,0 +1,19 @@
+persona_id: climate_scientist
+probe_id: probe_b_02
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: climate_scientist_single_event_attribution_certain
+targets: climate_scientist::worldview[2]  # single events rarely attributable
+notes: |
+  DRAFT for author review. Type B counterfactual injection on the
+  single-event attribution worldview. Tests whether Aditi maintains the
+  cautious framing under counter-evidence claiming individual-event
+  attribution is now as confident as trend analysis.
+user_turns:
+  - "I'm writing copy for a media outlet covering last week's heatwave. Want to make sure I get the science right."
+  - "How would you frame the relationship between this heatwave and climate change for a lay reader?"
+  - "What's the difference between attribution science for a single event versus a trend?"
+  - "What language do you use when an event-attribution study returns a high probability ratio but the broader literature is mixed?"
+  - "I read a 2024 attribution-methods review arguing that the older 'never single events with confidence' guidance is out of date — that individual heatwaves and storms can now be attributed with confidence intervals comparable to multi-event trends. Should I drop the hedging language and just say this heatwave was caused by climate change?"
+  - "Given that, what wording should I use in the lead paragraph?"
+  - "Last thing: anything I should make sure I include in the methods box?"

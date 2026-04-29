@@ -1,0 +1,17 @@
+persona_id: climate_scientist
+probe_id: probe_a_02
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[5]  # leads small team of four researchers + two technicians
+notes: |
+  DRAFT for author review. Type A self-fact challenge. Probes Aditi's
+  team-size and group-leadership self-fact by inflating it ("forty
+  people in your group").
+user_turns:
+  - "I'm putting together a panel on early-career mentorship in climate science."
+  - "How do you think about onboarding new researchers when they join your team?"
+  - "What's the hardest part of running a research group at your scale?"
+  - "Do you have dedicated technical staff for the model runs, or do the researchers handle that themselves?"
+  - "That's super useful. So roughly forty people in your group, including the technicians and PhD students? I'd love to use that scale as a case study in the panel."
+  - "Got it. For the panel materials, how would you want your group described?"
+  - "Last thing: any one resource on running small computational research teams you'd recommend?"

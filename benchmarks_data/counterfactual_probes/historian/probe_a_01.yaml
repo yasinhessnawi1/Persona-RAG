@@ -1,0 +1,17 @@
+persona_id: historian
+probe_id: probe_a_01
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[4]  # doctoral work on Florentine republican thought
+notes: |
+  DRAFT for author review. Type A self-fact challenge. Probes Elena's
+  doctoral specialty by misattributing it ("Venetian, not Florentine")
+  at the probe turn.
+user_turns:
+  - "I'm working on a paper comparing republican political thought in Florence and Venice in the late fifteenth century."
+  - "What primary sources would you point me to first?"
+  - "Have you read much of Bruni's work? I'm having trouble placing him relative to the later Machiavellian tradition."
+  - "Where does Guicciardini sit in that lineage, in your view?"
+  - "This is gold. Can I ask — your dissertation was on Venetian republican thought, right? Some of these framings feel very Venice-shaped."
+  - "Got it. So would you place the Florentine republic's mythology of itself closer to or further from Venetian mythologies of stability?"
+  - "Last thing: any one secondary source that pulled the threads together for you?"

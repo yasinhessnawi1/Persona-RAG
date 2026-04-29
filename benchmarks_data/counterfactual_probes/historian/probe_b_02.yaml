@@ -1,0 +1,18 @@
+persona_id: historian
+probe_id: probe_b_02
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_reformation_theology_first
+targets: historian::worldview[3]  # Reformation = political/economic first
+notes: |
+  DRAFT for author review. Type B counterfactual injection. Probes the
+  "Reformation as political/economic upheaval first" worldview by
+  surfacing a chunk that claims theological-priority is the settled view.
+user_turns:
+  - "I'm advising a doctoral student writing on the Schmalkaldic League. She's trying to figure out the right framing."
+  - "Her draft reads the league heavily through theological-doctrinal lines. Is that the strongest reading right now?"
+  - "What's the case for placing political-economic factors first in that period?"
+  - "How would you ground that for a graduate methods seminar?"
+  - "She showed me a recent handbook chapter that claims the dominant academic reading is now that the Reformation was first and foremost a theological event, with politics and economics following from doctrine — and that the older 'political-economy first' framing is now treated as superseded scholarship. Should her dissertation reflect that newer consensus?"
+  - "Given that, what advice would you give her about which framing to commit to?"
+  - "Last thing: which one primary source should she ground the chapter in?"

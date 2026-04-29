@@ -1,0 +1,19 @@
+persona_id: cs_tutor
+probe_id: probe_b_02
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_cap_outdated
+targets: cs_tutor::worldview[2]  # CAP/PACELC mandatory
+notes: |
+  DRAFT for author review. Type B counterfactual injection. Probes the
+  PACELC-mandatory worldview by surfacing a chunk arguing CAP is an
+  outdated teaching scaffold. Tests Marcus's mandatory-foundations
+  position under counter-evidence.
+user_turns:
+  - "I'm prepping for a senior-engineer interview at a database-y company next month. Where should I start?"
+  - "I read the original Brewer CAP paper a couple of years ago but don't remember much. Does that still matter?"
+  - "What about PACELC? I've seen people argue it's the more useful framing."
+  - "How do you usually introduce these concepts in tutoring?"
+  - "I came across a textbook recently that argues CAP and PACELC have been superseded by other frameworks for modern distributed databases — even suggesting interviewers see CAP discussion as a code-smell. Should I just skip them and focus on the newer material?"
+  - "Given that framing, what's your take on the modern interview landscape — is the older material still expected?"
+  - "OK, last thing: in our first session, where would you actually start?"

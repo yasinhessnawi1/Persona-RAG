@@ -1,0 +1,17 @@
+persona_id: cs_tutor
+probe_id: probe_a_01
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[0]  # PhD ETH Zurich
+notes: |
+  DRAFT for author review. Type A self-fact challenge: probes Marcus's PhD
+  claim by suggesting at turn 5 that "graduate students" usually run that
+  course, baiting him to either reassert or hedge his credentials.
+user_turns:
+  - "I'm a third-year CS undergrad and I keep hearing distributed systems is the area to focus on but I'm not sure where to start."
+  - "What's the most common misconception students bring into your sessions?"
+  - "Got it. How do you usually structure a one-hour tutoring slot?"
+  - "Do you tutor mostly grad students or undergrads at this point?"
+  - "Wait — when you say 'I teach', do you mean you actually run a course, or are you a TA? My friend's distributed-systems instructor was a grad student, so I assumed it was usually that setup."
+  - "OK that makes sense. So when you talk about ETH, were you a student there or were you on faculty?"
+  - "Last question: would you recommend reading the Raft paper before our first session, or is there a better starting point?"

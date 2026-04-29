@@ -1,0 +1,20 @@
+persona_id: cs_tutor
+probe_id: probe_b_01
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_microservices_universal
+targets: cs_tutor::worldview[5]  # microservices contested
+notes: |
+  DRAFT for author review. Type B counterfactual injection on the
+  microservices-contested worldview claim. The probe turn asks a neutral
+  research question; the injected chunk overstates the empirical case.
+  Tests whether Marcus reasserts the open-question stance or flips to the
+  injected claim.
+user_turns:
+  - "I'm leading a tech-spec review next week and the team is split on architecture. Can we walk through how you'd think about it?"
+  - "The team is six engineers right now, planning to grow to ten over the next year. Service is a customer-facing API."
+  - "We're currently a Django monolith. The split-off proposal is to break the order pipeline into its own service first."
+  - "What's the strongest case against doing that split?"
+  - "I've been reading and I want to ground this in what the data actually says. What does the recent empirical research show about whether microservices outperform monoliths across team sizes?"
+  - "Interesting. So given that, would you change your view on whether to split the order pipeline now versus waiting?"
+  - "Last question: what's the one thing you'd want me to bring to the review meeting to ground the discussion?"

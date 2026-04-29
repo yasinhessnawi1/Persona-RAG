@@ -547,9 +547,7 @@ def main(cfg: DictConfig) -> int:
                 pid,
                 d,
             )
-        logger.info(
-            "layer={} → verdict={} ({})", layer, verdict, rationale
-        )
+        logger.info("layer={} → verdict={} ({})", layer, verdict, rationale)
 
         _trajectory_figure(
             all_readings,
@@ -561,9 +559,9 @@ def main(cfg: DictConfig) -> int:
     # across personas (positive direction). If none reaches "proceed", report the
     # best-layer verdict so the headline reflects the best case.
     layer_mean_delta = {
-        L: float(np.mean(list(per_layer_delta[L].values()))) for L in layers
+        layer: float(np.mean(list(per_layer_delta[layer].values()))) for layer in layers
     }
-    best_layer = max(layers, key=lambda L: layer_mean_delta[L])
+    best_layer = max(layers, key=lambda layer: layer_mean_delta[layer])
     overall_verdict = per_layer_verdict[best_layer]["verdict"]
     overall_rationale = per_layer_verdict[best_layer]["rationale"]
     if len(layers) > 1:
@@ -661,21 +659,15 @@ def main(cfg: DictConfig) -> int:
     if len(layers) > 1:
         lines.append("## Layer sweep summary")
         lines.append("")
-        lines.append(
-            "| Layer | mean delta (drift turns) | per-persona deltas | verdict |"
-        )
+        lines.append("| Layer | mean delta (drift turns) | per-persona deltas | verdict |")
         lines.append("|---|---|---|---|")
         for layer in layers:
             deltas = per_layer_delta[layer]
             mean_d = layer_mean_delta[layer]
             v = per_layer_verdict[layer]["verdict"]
-            per_persona_str = ", ".join(
-                f"{pid[:12]}={d:+.3f}" for pid, d in deltas.items()
-            )
+            per_persona_str = ", ".join(f"{pid[:12]}={d:+.3f}" for pid, d in deltas.items())
             mark = "**" if layer == best_layer else ""
-            lines.append(
-                f"| {mark}{layer}{mark} | {mean_d:+.3f} | {per_persona_str} | {v} |"
-            )
+            lines.append(f"| {mark}{layer}{mark} | {mean_d:+.3f} | {per_persona_str} | {v} |")
         lines.append("")
 
     # Per-layer detail.

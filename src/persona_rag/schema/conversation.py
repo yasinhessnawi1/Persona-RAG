@@ -73,15 +73,11 @@ class DriftTrajectoryConversation(BaseModel):
         for i, turn in enumerate(self.turns):
             expected_role: TurnRole = "user" if i % 2 == 0 else "assistant"
             if turn.role != expected_role:
-                raise ValueError(
-                    f"turn {i}: expected role {expected_role!r}, got {turn.role!r}"
-                )
+                raise ValueError(f"turn {i}: expected role {expected_role!r}, got {turn.role!r}")
         # Annotations are mandatory on drifting conversations and forbidden on
         # in-persona ones (the in-persona condition has, by definition, no
         # drift to annotate).
-        annotated = [
-            t for t in self.turns if t.role == "assistant" and t.drift_level is not None
-        ]
+        annotated = [t for t in self.turns if t.role == "assistant" and t.drift_level is not None]
         if self.condition == "drifting":
             if len(annotated) != self.n_pairs:
                 raise ValueError(

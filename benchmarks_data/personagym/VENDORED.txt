@@ -1,0 +1,4 @@
+source: https://github.com/vsamuel2003/PersonaGym
+ref: master
+license: MIT
+fetched_via: scripts/fetch_personagym.py

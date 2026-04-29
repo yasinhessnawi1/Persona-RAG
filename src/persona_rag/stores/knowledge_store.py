@@ -177,6 +177,52 @@ class KnowledgeStore:
         """Add documents incrementally. Same semantics as `index_corpus` for a single batch."""
         return self.index_corpus(documents)
 
+    def remove_documents(self, doc_ids: Iterable[str]) -> int:
+        """Remove every chunk belonging to the given source ``doc_id``s.
+
+        Used by the counterfactual-probe runner to eject planted counter-
+        evidence after the probe turn so the next turn sees the
+        pre-injection store. Operates on the source ``doc_id`` (set at
+        ``add_documents`` time), not on chunk ids — one input doc may have
+        produced several chunks.
+
+        Returns the number of chunk rows removed. Idempotent: calling on
+        a doc that's already absent is a no-op.
+        """
+        wanted = list(doc_ids)
+        if not wanted:
+            return 0
+        # ChromaDB's `where` clause matches per chunk; `doc_id` is set in metadata
+        # by `_chunk_documents`. Pull matching chunk ids first so we can return
+        # the count and rebuild bm25 only when something was removed.
+        try:
+            raw = self._collection.get(
+                where={"doc_id": {"$in": wanted}},
+                include=["metadatas"],
+            )
+        except Exception:  # pragma: no cover — fallback for older chroma `where` shapes
+            # Older chromadb releases don't accept `$in`; fall back to a scan.
+            raw = self._collection.get(include=["metadatas"])
+            keep_meta = raw.get("metadatas") or []
+            keep_ids = raw.get("ids") or []
+            matching_ids = [
+                cid
+                for cid, meta in zip(keep_ids, keep_meta, strict=False)
+                if (meta or {}).get("doc_id") in set(wanted)
+            ]
+        else:
+            matching_ids = list(raw.get("ids") or [])
+        if not matching_ids:
+            return 0
+        self._collection.delete(ids=matching_ids)
+        self._rebuild_bm25_from_collection()
+        logger.info(
+            "KnowledgeStore removed {} chunks across doc_ids {}",
+            len(matching_ids),
+            wanted,
+        )
+        return len(matching_ids)
+
     def _chunk_documents(self, documents: list[KnowledgeDocument]) -> list[KnowledgeChunk]:
         out: list[KnowledgeChunk] = []
         for doc in documents:

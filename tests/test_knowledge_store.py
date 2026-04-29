@@ -181,3 +181,71 @@ def test_count_zero_before_indexing(tmp_path, fake_embedder) -> None:
         embedding_function=fake_embedder,
     )
     assert s.count() == 0
+
+
+# -------------------------------------------------------------- remove_documents
+
+
+def test_remove_documents_drops_all_chunks_for_doc_id(store) -> None:
+    """``remove_documents`` clears every chunk emitted from the listed doc ids."""
+    before = store.count()
+    n_removed = store.remove_documents(["raft"])
+    assert n_removed >= 1, "raft doc must contribute at least one chunk"
+    assert store.count() == before - n_removed
+
+
+def test_remove_documents_idempotent_on_missing_doc_id(store) -> None:
+    """Calling on an unknown doc_id is a no-op (returns 0)."""
+    before = store.count()
+    n_removed = store.remove_documents(["does_not_exist"])
+    assert n_removed == 0
+    assert store.count() == before
+
+
+def test_remove_documents_empty_input(store) -> None:
+    assert store.remove_documents([]) == 0
+
+
+def test_add_then_remove_restores_topk(tmp_path, fake_embedder, small_docs) -> None:
+    """Invariant: ``add → query → remove → query`` returns the pre-injection result.
+
+    Counterfactual-probe injection depends on this byte-for-byte: after the
+    probe turn ejects the planted chunk, the next turn must see the
+    pre-injection store state.
+    """
+    s = KnowledgeStore(
+        persist_path=tmp_path / "inject",
+        collection_name="inject_test",
+        embedding_function=fake_embedder,
+        chunk_size=512,
+        chunk_overlap=0,
+    )
+    s.index_corpus(small_docs)
+    # Capture the pre-injection top-k (BM25, deterministic across runs).
+    pre = [c.id for c in s.query_bm25("Raft consensus algorithm", top_k=5)]
+    pre_count = s.count()
+
+    injected = KnowledgeDocument(
+        doc_id="injected_counter_evidence",
+        text=(
+            "Recent industry survey claims raft consensus algorithm "
+            "is now widely considered obsolete for distributed log storage."
+        ),
+        source="injected.md",
+    )
+    s.add_documents([injected])
+    assert s.count() == pre_count + 1
+    during = [c.id for c in s.query_bm25("Raft consensus algorithm", top_k=5)]
+    # The injected chunk should appear (overlapping vocabulary). If it didn't
+    # appear we'd still be testing the remove invariant, but the assertion
+    # documents the expected behaviour.
+    assert any(cid.startswith("injected_counter_evidence") for cid in during)
+
+    n_removed = s.remove_documents(["injected_counter_evidence"])
+    assert n_removed >= 1
+    assert s.count() == pre_count
+
+    post = [c.id for c in s.query_bm25("Raft consensus algorithm", top_k=5)]
+    assert post == pre, (
+        f"post-remove top-k must match pre-injection top-k exactly; pre={pre} post={post}"
+    )
