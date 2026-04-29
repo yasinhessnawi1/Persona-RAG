@@ -96,6 +96,17 @@ def _build_llama():
     return LlamaBackend(cfg)
 
 
+# Token budgets: JSON judges (Qwen, Llama) emit a balanced JSON object in the
+# first ~150 tokens; the rest is repeat-loop noise that the parser skips. Cap
+# them at 256 to halve judge wall-clock without losing parses. Prometheus's
+# native rubric is more variable in length and stays at 512.
+#
+# Soft-stop on `}` is the principled next step but requires extending the
+# `LLMBackend.generate` protocol to take stop strings — out of scope for this
+# patch. The token cap alone gets ~50% of the speedup.
+_JSON_JUDGE_PERSONA_TOKENS = 256
+_JSON_JUDGE_TASK_TOKENS = 192
+
 _JUDGE_REGISTRY = {
     "prometheus": JudgeSpec(
         name="prometheus2_7b",
@@ -106,11 +117,15 @@ _JUDGE_REGISTRY = {
         name="qwen2_5_7b",
         builder=_build_qwen,
         rubric_format="json",
+        max_new_tokens_persona=_JSON_JUDGE_PERSONA_TOKENS,
+        max_new_tokens_task=_JSON_JUDGE_TASK_TOKENS,
     ),
     "llama": JudgeSpec(
         name="llama3_1_8b",
         builder=_build_llama,
         rubric_format="json",
+        max_new_tokens_persona=_JSON_JUDGE_PERSONA_TOKENS,
+        max_new_tokens_task=_JSON_JUDGE_TASK_TOKENS,
     ),
 }
 

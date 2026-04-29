@@ -157,9 +157,7 @@ def load_m3_records_json(
     records_path = Path(records_path)
     raw = json.loads(records_path.read_text(encoding="utf-8"))
     if not isinstance(raw, list):
-        raise ValueError(
-            f"{records_path}: expected a list at top-level, got {type(raw).__name__}"
-        )
+        raise ValueError(f"{records_path}: expected a list at top-level, got {type(raw).__name__}")
     target = mechanism.lower()
     convs: list[EvalConversation] = []
     skipped = 0

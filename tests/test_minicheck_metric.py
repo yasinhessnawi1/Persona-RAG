@@ -10,6 +10,7 @@ import pytest
 from persona_rag.evaluation.metrics import EvalConversation, ScoredTurn
 from persona_rag.evaluation.minicheck_metric import (
     MiniCheckMetric,
+    is_disclaimer,
     is_persona_relevant,
     split_sentences,
 )
@@ -212,19 +213,79 @@ def test_per_persona_breakdown_populated(cs_tutor: Persona) -> None:
 @pytest.mark.parametrize(
     "sentence, expected",
     [
+        # Real persona claims (no first-person disclaimers).
         ("I have a PhD from ETH", True),
         ("I'm a software engineer", True),
         ("My research focuses on consensus", True),
         ("I've taught for fifteen years", True),
-        ("Tell me about distributed systems", True),  # "me" matches
+        # Generic factual statements (no first person).
         ("Raft uses leader election", False),
         ("Distributed systems are hard", False),
         ("CAP describes a fundamental tradeoff", False),
         ("The capital of Norway is Oslo", False),
+        # AI-disclaimer / hedge / capability statements (first person but
+        # not a persona claim).
+        ("I might be able to provide more targeted advice", False),
+        ("I can't tell you which paper to pick", False),
+        ("Let me know if you have more details", False),
+        ("I am an AI assistant", False),
+        ("I'm just a language model", False),
+        ("I don't have access to that information", False),
+        ("I'd be happy to help with that", False),
+        ("I'll have to think about it", False),
+        ("I hope this helps", False),
     ],
 )
 def test_is_persona_relevant(sentence: str, expected: bool) -> None:
     assert is_persona_relevant(sentence) is expected
+
+
+@pytest.mark.parametrize(
+    "sentence, expected",
+    [
+        ("I might be able to help", True),
+        ("I cannot answer that", True),
+        ("I don't have access", True),
+        ("Let me know more", True),
+        ("I'm an AI", True),
+        # Real claims should NOT be flagged as disclaimers.
+        ("I have a PhD from ETH", False),
+        ("My research focuses on consensus", False),
+    ],
+)
+def test_is_disclaimer(sentence: str, expected: bool) -> None:
+    assert is_disclaimer(sentence) is expected
+
+
+def test_b1_disclaimer_false_positives_excluded(cs_tutor: Persona) -> None:
+    """Real B1 sentences from response_03 / response_04 inspection should be skipped.
+
+    Both sentences contain first-person pronouns but are disclaimers /
+    offers, not factual claims about the persona. Pre-fix they were
+    flagged as "contradicts every self-fact" (false positive).
+    """
+    scorer = _CannedScorer(rules=[], default=0.05)  # would-be contradiction
+    metric = MiniCheckMetric(scorer=scorer)
+    conv = _conv(
+        "cs_tutor",
+        [
+            (
+                "data corruption help?",
+                # response_03's flagged sentence
+                "Let me know if you have more specific details about your system, and I might be able to provide more targeted advice.",
+            ),
+            (
+                "paper recommendation?",
+                # response_04's flagged sentence
+                "While I can't tell you which paper to pick, I can give you some pointers based on the provided papers.",
+            ),
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    # Both turns should now score as vacuous 1.0 (no real persona claims).
+    assert result.value == pytest.approx(1.0)
+    assert result.metadata["turns_with_no_relevant_sentences"] == 2
+    assert result.metadata["contradicted_sentences"] == 0
 
 
 def test_generic_factual_turn_is_not_contradicted(cs_tutor: Persona) -> None:

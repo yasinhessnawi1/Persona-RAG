@@ -157,8 +157,24 @@ def _build_metrics(
                     builder=_build_prometheus,
                     rubric_format="native_prometheus",
                 ),
-                JudgeSpec(name="qwen2_5_7b", builder=_build_qwen, rubric_format="json"),
-                JudgeSpec(name="llama3_1_8b", builder=_build_llama, rubric_format="json"),
+                # JSON judges cap tokens at 256 / 192: the parser pulls the
+                # first balanced JSON object (~150 tokens); higher caps just
+                # buy repeat-loop noise. Halves judge wall-clock on the JSON
+                # judges with no parse-rate impact.
+                JudgeSpec(
+                    name="qwen2_5_7b",
+                    builder=_build_qwen,
+                    rubric_format="json",
+                    max_new_tokens_persona=256,
+                    max_new_tokens_task=192,
+                ),
+                JudgeSpec(
+                    name="llama3_1_8b",
+                    builder=_build_llama,
+                    rubric_format="json",
+                    max_new_tokens_persona=256,
+                    max_new_tokens_task=192,
+                ),
             ],
             output_dir=poll_output_dir,
         )

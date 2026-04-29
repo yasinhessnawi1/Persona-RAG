@@ -64,22 +64,69 @@ _FIRST_PERSON_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Disclaimer / hedge / capability-statement patterns that use first-person
+# grammar but do NOT make a factual claim about the persona. These get
+# excluded from the contradiction check.
+#
+# B1 vanilla-RAG inspection identified two false-positive patterns:
+#
+#   "Let me know if you have more specific details..."     (offer / hedge)
+#   "I can't tell you which paper to pick..."              (capability disclaimer)
+#
+# Plus the standard LLM-identity disclaimer family ("I am an AI", "I'm just a
+# language model"). Worst case if we over-skip is a slightly-too-lenient
+# metric; documented in the report's limitations section.
+_DISCLAIMER_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\bi\s+(?:can(?:not|'t)|won't|will not|do(?:n't| not)|"
+        r"shouldn't|wouldn't|couldn't|might|may|would|could|should)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bi'?d\s+(?:be\s+(?:happy|glad)|recommend|suggest)\b", re.IGNORECASE),
+    re.compile(r"\bi'?ll\s+(?:have|need|try)\b", re.IGNORECASE),
+    re.compile(r"\blet\s+me\s+know\b", re.IGNORECASE),
+    re.compile(
+        r"\bi(?:\s+am|'m)\s+(?:just\s+)?an?\s+"
+        r"(?:ai|assistant|language\s+model|chatbot|llm)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bi\s+don'?t\s+have\s+(?:access|the\s+ability|personal)\b", re.IGNORECASE),
+    re.compile(r"\bi\s+hope\s+(?:this|that)\b", re.IGNORECASE),
+)
+
+
+def is_disclaimer(sentence: str) -> bool:
+    """True iff the sentence is a first-person disclaimer / hedge / offer.
+
+    These look like persona claims (first-person grammar) but make no
+    factual claim about the persona. Excluded from the contradiction
+    check to avoid the false-positive pattern observed on B1
+    vanilla-RAG output (`docs/notes/minicheck_sanity.md`).
+    """
+    return any(p.search(sentence) for p in _DISCLAIMER_PATTERNS)
+
 
 def is_persona_relevant(sentence: str) -> bool:
-    """Heuristic: does the sentence make a first-person claim?
+    """Heuristic: does the sentence make a first-person claim about the persona?
 
-    Returns True iff the sentence contains a first-person pronoun. The
+    Returns True iff the sentence contains a first-person pronoun AND is
+    not predominantly a disclaimer / hedge / capability statement. The
     metric only applies the contradiction check to relevant sentences;
-    everything else (generic factual statements, off-topic sentences) is
-    scored as not-contradicted by construction.
+    everything else (generic factual statements, off-topic sentences,
+    AI-disclaimer-pattern sentences) is scored as not-contradicted by
+    construction.
 
-    This is the primary fix for the issue documented in
-    ``docs/notes/minicheck_sanity.md``: B1 vanilla-RAG output rarely
-    references the persona, so a "contradicts every self-fact" reading
-    fires constantly even when the assistant is just answering a CS
-    question with no claim about itself.
+    The two-stage gate (first-person → not-disclaimer) is the fix for
+    the false-positive pattern documented in
+    ``docs/notes/minicheck_sanity.md``: B1 vanilla-RAG output uses
+    first-person grammar mostly for hedges ("I might be able to help",
+    "Let me know if...") rather than persona claims. Without the
+    disclaimer skip, every such hedge gets flagged as "contradicts
+    every self-fact."
     """
-    return bool(_FIRST_PERSON_RE.search(sentence))
+    if not _FIRST_PERSON_RE.search(sentence):
+        return False
+    return not is_disclaimer(sentence)
 
 
 def split_sentences(text: str) -> list[str]:
@@ -333,6 +380,7 @@ __all__ = [
     "HFMiniCheckScorer",
     "MiniCheckMetric",
     "MiniCheckScorer",
+    "is_disclaimer",
     "is_persona_relevant",
     "split_sentences",
 ]

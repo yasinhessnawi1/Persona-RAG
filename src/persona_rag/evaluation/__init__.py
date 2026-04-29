@@ -32,6 +32,7 @@ from persona_rag.evaluation.minicheck_metric import (
     HFMiniCheckScorer,
     MiniCheckMetric,
     MiniCheckScorer,
+    is_disclaimer,
     is_persona_relevant,
     split_sentences,
 )
@@ -103,6 +104,7 @@ __all__ = [
     "SyconMetric",
     "compute_flip_stats",
     "conversation_yaml_to_eval",
+    "is_disclaimer",
     "is_persona_relevant",
     "is_refchecker_available",
     "load_baseline_response_dir",
