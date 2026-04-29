@@ -122,6 +122,14 @@ class EvaluationRunner:
             key = (cell.mechanism, cell.persona.persona_id or "<unknown>")
             cell_results.setdefault(key, [])
             for metric in self.metrics:
+                # Per-mechanism metrics (e.g. ``CostTracker(mechanism=...)``)
+                # carry a ``mechanism`` attribute; only run them against
+                # cells whose mechanism matches. Without this, every cell
+                # gets scored by every per-mechanism tracker, producing
+                # bogus duplicate cost rows in the CSV.
+                metric_mechanism = getattr(metric, "mechanism", None)
+                if metric_mechanism is not None and metric_mechanism != cell.mechanism:
+                    continue
                 logger.info(
                     "runner: cell {} x metric {} ({} conversations)",
                     key,

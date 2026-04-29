@@ -198,6 +198,81 @@ def test_runner_rejects_no_metrics(tmp_path: Path) -> None:
         EvaluationRunner(output_dir=tmp_path, metrics=[])
 
 
+class _PerMechMetric:
+    """Metric that records which (cell, conversation_set) pairs it scored.
+
+    Carries a ``mechanism`` attribute so the runner's per-mechanism gate
+    fires. Returns a const-shaped MetricResult.
+    """
+
+    def __init__(self, name: str, mechanism: str, value: float) -> None:
+        self.name = name
+        self.mechanism = mechanism
+        self._value = value
+        self.scored_cells: list[str] = []
+
+    def score(
+        self,
+        conversations: list[EvalConversation],
+        persona: Persona,
+    ) -> MetricResult:
+        # Record what we got asked to score (one entry per call).
+        self.scored_cells.append(
+            f"{conversations[0].mechanism if conversations else '?'}::{persona.persona_id or '?'}"
+        )
+        per = [self._value for _ in conversations]
+        return MetricResult(
+            name=self.name,
+            value=self._value,
+            per_conversation=per,
+            per_conversation_ids=[c.conversation_id for c in conversations],
+            per_persona={persona.persona_id or "<unknown>": self._value},
+            metadata={"mechanism": self.mechanism},
+        )
+
+
+def test_runner_per_mechanism_metric_only_runs_on_matching_cell(
+    cs_tutor: Persona, tmp_path: Path
+) -> None:
+    """A metric carrying ``mechanism="m1"`` only scores M1 cells, not B1 or M3.
+
+    Without this gate, every CostTracker (which is per-mechanism)
+    would score every cell, producing duplicate cost rows. See
+    decision in the Spec-08 close-out for the bug history.
+    """
+    m1_tracker = _PerMechMetric("cost_m1", mechanism="m1", value=1.0)
+    m3_tracker = _PerMechMetric("cost_m3", mechanism="m3", value=2.8)
+    shared_metric = _ConstMetric("shared", 0.5)
+
+    cells = [
+        _make_cell("b1", cs_tutor),
+        _make_cell("m1", cs_tutor),
+        _make_cell("m3", cs_tutor),
+    ]
+    runner = EvaluationRunner(
+        output_dir=tmp_path / "perm",
+        metrics=[shared_metric, m1_tracker, m3_tracker],
+        run_id="rid",
+    )
+    runner.run(cells)
+
+    # Per-mechanism trackers only ran on their cell.
+    assert m1_tracker.scored_cells == ["m1::cs_tutor"]
+    assert m3_tracker.scored_cells == ["m3::cs_tutor"]
+
+    # CSV should have: 3 cells x 1 shared metric (3 agg rows) +
+    # 1 m1-tracker row + 1 m3-tracker row = 5 aggregate rows.
+    agg_path = tmp_path / "perm" / "results_aggregate.csv"
+    with agg_path.open() as f:
+        agg_rows = list(csv.DictReader(f))
+    assert len(agg_rows) == 5
+    # No m3 cost row attached to a b1 or m1 cell.
+    cost_m3_rows = [r for r in agg_rows if r["metric_name"] == "cost_m3"]
+    assert {r["mechanism"] for r in cost_m3_rows} == {"m3"}
+    cost_m1_rows = [r for r in agg_rows if r["metric_name"] == "cost_m1"]
+    assert {r["mechanism"] for r in cost_m1_rows} == {"m1"}
+
+
 def test_runner_reproducibility_two_runs_same_seed(cs_tutor: Persona, tmp_path: Path) -> None:
     """Same metrics + same conversations + same seed -> identical CSV outputs."""
     cell = _make_cell("b1", cs_tutor)
