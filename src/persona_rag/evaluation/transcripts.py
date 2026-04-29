@@ -134,8 +134,92 @@ def load_conversation_yamls(
     return [conversation_yaml_to_eval(p, mechanism=mechanism) for p in paths]
 
 
+def load_m3_records_json(
+    records_path: Path,
+    *,
+    mechanism: str,
+    persona_id: str,
+) -> list[EvalConversation]:
+    """Load the records-bundle JSON shape produced by ``run_m3_vs_baselines_pilot.py``.
+
+    The file is a list of records, one per query. Each record carries:
+
+    - ``query_id``: stable id for the query.
+    - ``query``: the user turn text.
+    - ``label``: bucket label (e.g. ``drift_triggering``, ``in_persona_extra``).
+    - ``by_pipeline``: ``{pipeline_name: {text, metadata}, ...}`` covering every
+      mechanism that was run on this query (B1, B2, M1, M3, ...).
+
+    This loader pulls out the assistant turn for *one* mechanism (matched
+    against the ``by_pipeline`` keys case-insensitively, so ``"m3"`` finds
+    ``"M3"``). Each record becomes one 1-turn ``EvalConversation``.
+    """
+    records_path = Path(records_path)
+    raw = json.loads(records_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError(
+            f"{records_path}: expected a list at top-level, got {type(raw).__name__}"
+        )
+    target = mechanism.lower()
+    convs: list[EvalConversation] = []
+    skipped = 0
+    for rec in raw:
+        if not isinstance(rec, dict):
+            continue
+        by_pipeline = rec.get("by_pipeline") or {}
+        match_key = next(
+            (k for k in by_pipeline if k.lower() == target),
+            None,
+        )
+        if match_key is None:
+            skipped += 1
+            continue
+        pipeline_payload = by_pipeline[match_key] or {}
+        user_text = str(rec.get("query", "")).strip()
+        assistant_text = str(pipeline_payload.get("text", "")).strip()
+        if not user_text or not assistant_text:
+            skipped += 1
+            continue
+        per_turn_meta: dict[str, Any] = {
+            "label": rec.get("label"),
+            "query_id": rec.get("query_id"),
+        }
+        pipeline_meta = pipeline_payload.get("metadata")
+        if isinstance(pipeline_meta, dict):
+            per_turn_meta["metadata"] = pipeline_meta
+        turn = ScoredTurn(
+            turn_index=0,
+            user_text=user_text,
+            assistant_text=assistant_text,
+        )
+        convs.append(
+            EvalConversation(
+                conversation_id=f"{persona_id}::{mechanism}::{rec.get('query_id', f'r{len(convs)}')}",
+                mechanism=mechanism,
+                persona_id=persona_id,
+                turns=(turn,),
+                per_turn_metadata=(per_turn_meta,),
+            )
+        )
+    if skipped:
+        logger.warning(
+            "transcripts: skipped {} records (no '{}' pipeline or empty text) in {}",
+            skipped,
+            mechanism,
+            records_path,
+        )
+    logger.info(
+        "transcripts: loaded {} {} conversations from {}",
+        len(convs),
+        mechanism,
+        records_path,
+    )
+    return convs
+
+
 __all__ = [
     "conversation_yaml_to_eval",
     "load_baseline_response_dir",
     "load_conversation_yamls",
+    "load_m3_records_json",
 ]

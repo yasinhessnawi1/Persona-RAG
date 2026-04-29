@@ -42,7 +42,10 @@ from persona_rag.evaluation.poll_panel import (
     reliability_matrix_from_checkpoints,
     write_combined_summary,
 )
-from persona_rag.evaluation.transcripts import load_baseline_response_dir
+from persona_rag.evaluation.transcripts import (
+    load_baseline_response_dir,
+    load_m3_records_json,
+)
 from persona_rag.schema.persona import Persona
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -115,7 +118,17 @@ _JUDGE_REGISTRY = {
 def main() -> int:
     """Run the PoLL pilot. Returns 0 on success."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source-dir", required=True, help="dir with response_*.json files")
+    parser.add_argument(
+        "--source-dir",
+        help="dir with response_*.json files (B1/B2/M1 shape). Required unless --records-json is set.",
+    )
+    parser.add_argument(
+        "--records-json",
+        help=(
+            "path to a run_m3_vs_baselines_pilot.py records.json bundle. "
+            "Mutually exclusive with --source-dir."
+        ),
+    )
     parser.add_argument("--mechanism", required=True, help="mechanism label (b1, b2, m1, m3)")
     parser.add_argument("--persona", required=True, help="persona id under personas/")
     parser.add_argument("--max", type=int, default=20, help="max conversations (default 20)")
@@ -137,14 +150,28 @@ def main() -> int:
     out_dir = REPO_ROOT / args.out_root / timestamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    if not args.source_dir and not args.records_json:
+        raise SystemExit("Provide either --source-dir or --records-json.")
+    if args.source_dir and args.records_json:
+        raise SystemExit("--source-dir and --records-json are mutually exclusive.")
+
     persona = Persona.from_yaml(REPO_ROOT / "personas" / f"{args.persona}.yaml")
-    convs = load_baseline_response_dir(
-        Path(args.source_dir).resolve(),
-        mechanism=args.mechanism,
-        persona_id=args.persona,
-    )
+    if args.source_dir:
+        convs = load_baseline_response_dir(
+            Path(args.source_dir).resolve(),
+            mechanism=args.mechanism,
+            persona_id=args.persona,
+        )
+        source_label = args.source_dir
+    else:
+        convs = load_m3_records_json(
+            Path(args.records_json).resolve(),
+            mechanism=args.mechanism,
+            persona_id=args.persona,
+        )
+        source_label = args.records_json
     convs = convs[: args.max]
-    logger.info("PoLL pilot: {} conversations from {}", len(convs), args.source_dir)
+    logger.info("PoLL pilot: {} conversations from {}", len(convs), source_label)
 
     judge_specs = [spec for name, spec in _JUDGE_REGISTRY.items() if name not in args.skip]
     panel = PoLLPanel(judges=judge_specs, output_dir=out_dir)

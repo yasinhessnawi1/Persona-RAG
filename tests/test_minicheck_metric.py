@@ -10,6 +10,7 @@ import pytest
 from persona_rag.evaluation.metrics import EvalConversation, ScoredTurn
 from persona_rag.evaluation.minicheck_metric import (
     MiniCheckMetric,
+    is_persona_relevant,
     split_sentences,
 )
 from persona_rag.schema.persona import Persona
@@ -203,3 +204,98 @@ def test_per_persona_breakdown_populated(cs_tutor: Persona) -> None:
     result = metric.score([conv], cs_tutor)
     assert "cs_tutor" in result.per_persona
     assert result.per_persona["cs_tutor"] == pytest.approx(result.value)
+
+
+# ----- first-person persona-relevance gate -----
+
+
+@pytest.mark.parametrize(
+    "sentence, expected",
+    [
+        ("I have a PhD from ETH", True),
+        ("I'm a software engineer", True),
+        ("My research focuses on consensus", True),
+        ("I've taught for fifteen years", True),
+        ("Tell me about distributed systems", True),  # "me" matches
+        ("Raft uses leader election", False),
+        ("Distributed systems are hard", False),
+        ("CAP describes a fundamental tradeoff", False),
+        ("The capital of Norway is Oslo", False),
+    ],
+)
+def test_is_persona_relevant(sentence: str, expected: bool) -> None:
+    assert is_persona_relevant(sentence) is expected
+
+
+def test_generic_factual_turn_is_not_contradicted(cs_tutor: Persona) -> None:
+    """A turn with no first-person claims scores 1.0 even if it doesn't echo any self-fact.
+
+    This is the post-fix behaviour: B1 vanilla-RAG explaining Raft does not
+    contradict the persona's self-facts because it isn't claiming anything
+    about the persona.
+    """
+    scorer = _CannedScorer(rules=[], default=0.05)  # would-be contradiction
+    metric = MiniCheckMetric(scorer=scorer)
+    conv = _conv(
+        "cs_tutor",
+        [
+            (
+                "what is Raft?",
+                "Raft is a consensus algorithm. It uses leader election. Followers replicate the leader's log.",
+            )
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    assert result.value == pytest.approx(1.0)
+    # All 3 sentences exist in total but none are persona-relevant.
+    assert result.metadata["total_sentences"] == 3
+    assert result.metadata["relevant_sentences"] == 0
+    assert result.metadata["turns_with_no_relevant_sentences"] == 1
+    assert result.metadata["contradicted_sentences"] == 0
+
+
+def test_mixed_relevant_and_irrelevant_only_relevant_is_judged(cs_tutor: Persona) -> None:
+    """Mixed turn: only persona-relevant sentences count toward the contradiction rate."""
+    scorer = _CannedScorer(
+        rules=[("PhD", "PhD", 0.9)],  # supports first sentence
+        default=0.05,  # everything else "unsupported"
+    )
+    metric = MiniCheckMetric(scorer=scorer)
+    conv = _conv(
+        "cs_tutor",
+        [
+            (
+                "tell me about your background and Raft",
+                "I have a PhD from ETH. Raft uses leader election. CAP is a tradeoff.",
+            )
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    # 1 persona-relevant sentence, supported by self-facts -> score 1.0.
+    # 2 generic sentences ignored.
+    assert result.value == pytest.approx(1.0)
+    assert result.metadata["total_sentences"] == 3
+    assert result.metadata["relevant_sentences"] == 1
+    assert result.metadata["contradicted_sentences"] == 0
+
+
+def test_first_person_contradiction_still_caught(cs_tutor: Persona) -> None:
+    """First-person sentences that contradict self-facts are still flagged."""
+    scorer = _CannedScorer(rules=[], default=0.05)
+    metric = MiniCheckMetric(scorer=scorer)
+    conv = _conv(
+        "cs_tutor",
+        [
+            (
+                "tell me about yourself",
+                "I have no formal training. CAP is a tradeoff in distributed systems.",
+            )
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    # 2 sentences, 1 persona-relevant ("I have no formal training") and contradicted.
+    # The CAP sentence is generic -> ignored.
+    # Per-turn score: 0/1 = 0.0.
+    assert result.value == pytest.approx(0.0)
+    assert result.metadata["relevant_sentences"] == 1
+    assert result.metadata["contradicted_sentences"] == 1

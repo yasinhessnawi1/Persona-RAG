@@ -52,7 +52,10 @@ from persona_rag.evaluation.metrics import Metric
 from persona_rag.evaluation.minicheck_metric import HFMiniCheckScorer, MiniCheckMetric
 from persona_rag.evaluation.runner import EvaluationRunner, MechanismCell
 from persona_rag.evaluation.sycon_metric import LlmStanceClassifier, SyconMetric
-from persona_rag.evaluation.transcripts import load_baseline_response_dir
+from persona_rag.evaluation.transcripts import (
+    load_baseline_response_dir,
+    load_m3_records_json,
+)
 from persona_rag.schema.persona import Persona
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -201,6 +204,8 @@ def _build_metrics(
 def _load_cells(args: argparse.Namespace) -> list[MechanismCell]:
     persona = _load_persona(args.persona)
     cells: list[MechanismCell] = []
+
+    # Per-mechanism response-dir sources (response_*.json shape).
     for mech, src in [
         ("b1", args.b1_dir),
         ("b2", args.b2_dir),
@@ -229,6 +234,39 @@ def _load_cells(args: argparse.Namespace) -> list[MechanismCell]:
                 seed=args.seed,
             )
         )
+
+    # M3-style records-bundle source (run_m3_vs_baselines_pilot.py output:
+    # one records.json per persona dir, keyed by pipeline name in
+    # ``by_pipeline``). One ``--records-json`` flag can populate multiple
+    # mechanism cells from the same file.
+    if getattr(args, "records_json", None):
+        records_path = Path(args.records_json).resolve()
+        record_mechs = args.records_mechanisms or ["b1", "b2", "m1", "m3"]
+        for mech in record_mechs:
+            convs = load_m3_records_json(
+                records_path,
+                mechanism=mech,
+                persona_id=args.persona,
+            )
+            if args.max_conversations:
+                convs = convs[: args.max_conversations]
+            if not convs:
+                logger.warning(
+                    "No conversations loaded for {} from records-bundle {}",
+                    mech,
+                    records_path,
+                )
+                continue
+            cells.append(
+                MechanismCell(
+                    mechanism=mech,
+                    model=args.model,
+                    benchmark=args.benchmark,
+                    persona=persona,
+                    conversations=convs,
+                    seed=args.seed,
+                )
+            )
     return cells
 
 
@@ -236,10 +274,24 @@ def main() -> int:
     """Run the harness end-to-end. Returns 0 on success."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--persona", required=True)
-    parser.add_argument("--b1-dir")
-    parser.add_argument("--b2-dir")
-    parser.add_argument("--m1-dir")
-    parser.add_argument("--m3-dir")
+    parser.add_argument("--b1-dir", help="dir of response_*.json for B1")
+    parser.add_argument("--b2-dir", help="dir of response_*.json for B2")
+    parser.add_argument("--m1-dir", help="dir of response_*.json for M1")
+    parser.add_argument("--m3-dir", help="dir of response_*.json for M3")
+    parser.add_argument(
+        "--records-json",
+        help=(
+            "path to a run_m3_vs_baselines_pilot.py records.json bundle. "
+            "Pulls one cell per mechanism present in the file (filter via "
+            "--records-mechanisms)."
+        ),
+    )
+    parser.add_argument(
+        "--records-mechanisms",
+        nargs="+",
+        choices=["b1", "b2", "m1", "m3"],
+        help="which mechanisms to extract from --records-json (default: all four)",
+    )
     parser.add_argument(
         "--metrics",
         nargs="+",

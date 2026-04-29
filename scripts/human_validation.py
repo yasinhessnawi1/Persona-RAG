@@ -43,7 +43,10 @@ from persona_rag.evaluation.human_validation import (
     stratified_sample,
     write_alpha_report,
 )
-from persona_rag.evaluation.transcripts import load_baseline_response_dir
+from persona_rag.evaluation.transcripts import (
+    load_baseline_response_dir,
+    load_m3_records_json,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,8 +72,28 @@ def _cmd_export(args: argparse.Namespace) -> int:
         by_mech[mech] = convs
         logger.info("loaded {} conversations for mechanism {}", len(convs), mech)
 
+    if args.records_json:
+        records_path = Path(args.records_json).resolve()
+        record_mechs = args.records_mechanisms or ["b1", "b2", "m1", "m3"]
+        for mech in record_mechs:
+            convs = load_m3_records_json(
+                records_path,
+                mechanism=mech,
+                persona_id=args.persona,
+            )
+            if not convs:
+                logger.warning(
+                    "no conversations for {} in records-bundle {}", mech, records_path
+                )
+                continue
+            # If a per-mechanism dir was also passed, prefer the dir's data
+            # (more conversations typically); else use records-bundle data.
+            by_mech.setdefault(mech, convs)
+
     if not by_mech:
-        raise SystemExit("Provide at least one of --b1-dir / --b2-dir / --m1-dir / --m3-dir")
+        raise SystemExit(
+            "Provide at least one source: --b1-dir / --b2-dir / --m1-dir / --m3-dir / --records-json"
+        )
 
     items = stratified_sample(
         by_mech,
@@ -120,10 +143,23 @@ def main() -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_export = sub.add_parser("export", help="export blinded CSV for human rating")
-    p_export.add_argument("--b1-dir")
-    p_export.add_argument("--b2-dir")
-    p_export.add_argument("--m1-dir")
-    p_export.add_argument("--m3-dir")
+    p_export.add_argument("--b1-dir", help="dir of response_*.json for B1")
+    p_export.add_argument("--b2-dir", help="dir of response_*.json for B2")
+    p_export.add_argument("--m1-dir", help="dir of response_*.json for M1")
+    p_export.add_argument("--m3-dir", help="dir of response_*.json for M3")
+    p_export.add_argument(
+        "--records-json",
+        help=(
+            "path to a run_m3_vs_baselines_pilot.py records.json bundle. "
+            "Pulls one cell per mechanism present in the file."
+        ),
+    )
+    p_export.add_argument(
+        "--records-mechanisms",
+        nargs="+",
+        choices=["b1", "b2", "m1", "m3"],
+        help="which mechanisms to extract from --records-json (default: all four)",
+    )
     p_export.add_argument("--persona", required=True)
     p_export.add_argument("--per-mechanism", type=int, default=5)
     p_export.add_argument("--seed", type=int, default=42)

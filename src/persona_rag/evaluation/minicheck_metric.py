@@ -53,6 +53,34 @@ _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]?", re.MULTILINE)
 _MIN_SENTENCE_CHARS = 4
 _SHORT_TURN_THRESHOLD = 10
 
+# First-person pronoun gate: a sentence claiming something *about the persona*
+# almost always uses one of these tokens. Restricting the contradiction check
+# to such sentences avoids the conservative-reading failure mode where
+# generic-helpful-assistant content (B1's wheelhouse) gets flagged as
+# "contradiction" because it's just unrelated to the self-facts. We split on
+# word boundaries so "I'm" / "I've" / "I'd" all match.
+_FIRST_PERSON_RE = re.compile(
+    r"\b(?:i|i'm|i've|i'd|i'll|me|my|mine|myself)\b",
+    re.IGNORECASE,
+)
+
+
+def is_persona_relevant(sentence: str) -> bool:
+    """Heuristic: does the sentence make a first-person claim?
+
+    Returns True iff the sentence contains a first-person pronoun. The
+    metric only applies the contradiction check to relevant sentences;
+    everything else (generic factual statements, off-topic sentences) is
+    scored as not-contradicted by construction.
+
+    This is the primary fix for the issue documented in
+    ``docs/notes/minicheck_sanity.md``: B1 vanilla-RAG output rarely
+    references the persona, so a "contradicts every self-fact" reading
+    fires constantly even when the assistant is just answering a CS
+    question with no claim about itself.
+    """
+    return bool(_FIRST_PERSON_RE.search(sentence))
+
 
 def split_sentences(text: str) -> list[str]:
     """Split a turn into sentence-level claims.
@@ -187,24 +215,29 @@ class MiniCheckMetric:
     Per assistant turn:
 
     1. Split the turn into sentences.
-    2. For each sentence cross each self-fact, get ``p(supported)``.
-    3. Sentence is "contradicted" if ``max p(supported) < threshold``
-       across all self-facts (no self-fact supports it AND it sits in
-       persona-fact space -- i.e. the model thinks every self-fact
-       contradicts it).
-    4. Per-turn score = fraction of sentences NOT contradicted.
+    2. Filter to sentences that are *persona-relevant* via
+       :func:`is_persona_relevant` (first-person pronoun gate). Generic
+       statements like "Raft uses leader election" are not persona-relevant
+       and are not subject to the contradiction check.
+    3. For each persona-relevant sentence cross each self-fact, get
+       ``p(supported)``.
+    4. Sentence is "contradicted" if ``max p(supported) < threshold``
+       across all self-facts (no self-fact supports it).
+    5. Per-turn score = fraction of persona-relevant sentences NOT
+       contradicted. Turns with zero persona-relevant sentences score 1.0
+       (vacuously consistent — the assistant didn't claim anything about
+       itself).
 
     Per-conversation score = mean across assistant turns.
     Aggregate value = mean across conversations.
     Higher is better (1.0 = no contradictions).
 
-    The reading is conservative: a sentence is only flagged as a
-    contradiction if NO self-fact supports it. Sentences that are about
-    unrelated topics (the model says "unsupported" because there's
-    nothing to ground them) ARE flagged -- this is the conservative side
-    of the cost / sensitivity tradeoff documented in A1's notes. The
-    sanity test in ``docs/notes/minicheck_sanity.md`` is the empirical
-    check on this convention.
+    The first-person gate fixes the conservative-reading edge case:
+    without it, a B1 vanilla-RAG turn answering "what is Raft?" would be
+    flagged as contradiction because nothing in the self-facts supports
+    "Raft uses leader election." With it, only sentences that actually
+    make claims about the persona enter the contradiction check.
+    Documented in ``docs/notes/minicheck_sanity.md``.
     """
 
     scorer: MiniCheckScorer
@@ -223,7 +256,9 @@ class MiniCheckMetric:
         meta_short = 0
         meta_empty = 0
         meta_total_sentences = 0
+        meta_relevant_sentences = 0
         meta_contradicted = 0
+        meta_turns_with_no_relevant = 0
 
         for conv in conversations:
             if not conv.turns:
@@ -245,19 +280,29 @@ class MiniCheckMetric:
                     meta_empty += 1
                     turn_scores.append(1.0)
                     continue
-                pairs = [(sf, sentence) for sentence in sentences for sf in self_facts]
+                meta_total_sentences += len(sentences)
+                relevant = [s for s in sentences if is_persona_relevant(s)]
+                if not relevant:
+                    # No persona-relevant sentences in this turn -> the
+                    # assistant didn't claim anything about itself, so the
+                    # contradiction check is vacuous. Score 1.0.
+                    meta_turns_with_no_relevant += 1
+                    turn_scores.append(1.0)
+                    continue
+                meta_relevant_sentences += len(relevant)
+                pairs = [(sf, sentence) for sentence in relevant for sf in self_facts]
                 probs = self.scorer.score_batch(pairs)
-                # Reshape probs into (n_sentences, n_self_facts) and apply
-                # the "no self-fact supports it" rule per sentence.
+                # Reshape probs into (n_relevant, n_self_facts) and apply
+                # the "no self-fact supports it" rule per persona-relevant
+                # sentence.
                 n_facts = len(self_facts)
                 ok_count = 0
-                for i in range(len(sentences)):
+                for i in range(len(relevant)):
                     fact_probs = probs[i * n_facts : (i + 1) * n_facts]
                     if max(fact_probs) >= self.threshold:
                         ok_count += 1
-                meta_total_sentences += len(sentences)
-                meta_contradicted += len(sentences) - ok_count
-                turn_scores.append(ok_count / len(sentences) if sentences else 1.0)
+                meta_contradicted += len(relevant) - ok_count
+                turn_scores.append(ok_count / len(relevant))
             per_conv_scores.append(statistics.fmean(turn_scores) if turn_scores else 1.0)
             per_conv_ids.append(conv.conversation_id)
 
@@ -276,6 +321,8 @@ class MiniCheckMetric:
                 "short_turns": meta_short,
                 "empty_turns": meta_empty,
                 "total_sentences": meta_total_sentences,
+                "relevant_sentences": meta_relevant_sentences,
+                "turns_with_no_relevant_sentences": meta_turns_with_no_relevant,
                 "contradicted_sentences": meta_contradicted,
             },
         )
@@ -286,5 +333,6 @@ __all__ = [
     "HFMiniCheckScorer",
     "MiniCheckMetric",
     "MiniCheckScorer",
+    "is_persona_relevant",
     "split_sentences",
 ]
