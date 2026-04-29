@@ -78,6 +78,11 @@ dependencies = [
     # Build's free-tier OpenAI-compatible endpoint. Pinned conservatively
     # against major version bumps that change the chat-completion shape.
     "openai>=1.30,<2",
+    # Inter-rater reliability for the human-validation pipeline. The
+    # `krippendorff` PyPI package (fast-krippendorff) supports ordinal
+    # data with NaN for missing scores; this is what we need for
+    # 1-5 ordinal rubric scoring across the PoLL panel + human raters.
+    "krippendorff>=0.6,<1",
 ]
 
 [project.optional-dependencies]

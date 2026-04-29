@@ -67,7 +67,14 @@ def test_min_max_normalise_identical_inputs_map_to_half() -> None:
 
 
 def test_min_max_normalisation_invariance_under_signal_scale_shift(cs_tutor: Persona) -> None:
-    """Scaling one signal by 10x must not change the ranking."""
+    """Scaling one signal by an additive offset must not change the ranking.
+
+    Min-max normalisation maps the (sorted) range to [0, 1] regardless of the
+    signal's absolute scale or location. Two judges that produce the same
+    *order* of scores (here: 1 < 3 < 5 vs 2 < 4 < 5) must therefore agree on
+    the final candidate ranking, because the ranker only sees the
+    normalised values.
+    """
     char_rm = FakeCharacterRMScorer()
 
     judge_a = _ScriptedJudge([3, 5, 1])
@@ -78,19 +85,18 @@ def test_min_max_normalisation_invariance_under_signal_scale_shift(cs_tutor: Per
         candidates=["candidate alpha", "candidate beta", "candidate gamma"],
     )
 
-    # Scale judge scores by 10x; invariance under min-max normalisation
-    # means the same per-candidate ranking must come out.
-    judge_b = _ScriptedJudge([30, 50, 10])
+    # Same per-candidate order (smallest -> largest), different absolute scores.
+    # Both stay inside the [1,5] regex's match window so neither falls back to 3.0.
+    judge_b = _ScriptedJudge([4, 5, 2])
     ranker_b = HybridRanker(character_rm=char_rm, rerank_judge=judge_b)
     ranked_b = ranker_b.rank(
         persona=cs_tutor,
         query="q",
         candidates=["candidate alpha", "candidate beta", "candidate gamma"],
     )
-    # Judge raw scores out-of-range get parsed as 3.0 fallback by
-    # _parse_judge_score's [1-5] regex; this test verifies the fallback path
-    # produces stable rankings regardless. Both rankers should agree on the
-    # candidate ordering since the CharacterRM scores are identical.
+    # Both rankers see the same normalised judge scores ((3-1)/(5-1) vs
+    # (4-2)/(5-2)) and the same CharacterRM scores -> identical candidate
+    # rankings.
     assert [rc.candidate_ix for rc in ranked_a] == [rc.candidate_ix for rc in ranked_b]
 
 

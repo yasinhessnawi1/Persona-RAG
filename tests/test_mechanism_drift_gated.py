@@ -133,7 +133,7 @@ class _ScriptedBackend:
 
 def test_cheap_path_when_gate_returns_ok(fake_backend, m1, cs_tutor) -> None:
     gate_judge = _ScriptedBackend(
-        [("you are an evaluator", "flag: ok\nconfidence: 0.95\nrationale: in voice")]
+        [("You are evaluating", "flag: ok\nconfidence: 0.95\nrationale: in voice")]
     )
     rerank_judge = _ScriptedBackend([])
     gate = LlmJudgeDriftGate(judge=gate_judge, confidence_threshold=0.5)
@@ -176,7 +176,7 @@ def test_cheap_path_on_turn_zero(fake_backend, m1, cs_tutor) -> None:
 
 def test_gated_path_runs_full_pipeline(fake_backend, m1, cs_tutor) -> None:
     gate_judge = _ScriptedBackend(
-        [("you are an evaluator", "flag: drift\nconfidence: 0.9\nrationale: off-persona")]
+        [("You are evaluating", "flag: drift\nconfidence: 0.9\nrationale: off-persona")]
     )
     rerank_judge = _ScriptedBackend([("Evaluate how well", "[RESULT] 4")])
     gate = LlmJudgeDriftGate(judge=gate_judge, confidence_threshold=0.5)
@@ -225,7 +225,7 @@ def test_gated_path_falls_back_to_judge_only_when_character_rm_disabled(
     code change.
     """
     gate_judge = _ScriptedBackend(
-        [("you are an evaluator", "flag: drift\nconfidence: 0.9\nrationale: x")]
+        [("You are evaluating", "flag: drift\nconfidence: 0.9\nrationale: x")]
     )
     rerank_judge = _ScriptedBackend([("Evaluate how well", "[RESULT] 5")])
     char_rm = FakeCharacterRMScorer()
@@ -254,7 +254,7 @@ def test_gated_path_falls_back_to_judge_only_when_character_rm_disabled(
 def test_n_candidates_one_collapses_to_baseline_only(fake_backend, m1, cs_tutor) -> None:
     """``n_candidates=1`` is allowed; ranker sorts a single candidate."""
     gate_judge = _ScriptedBackend(
-        [("you are an evaluator", "flag: drift\nconfidence: 0.9\nrationale: x")]
+        [("You are evaluating", "flag: drift\nconfidence: 0.9\nrationale: x")]
     )
     rerank_judge = _ScriptedBackend([("Evaluate how well", "[RESULT] 3")])
     gate = LlmJudgeDriftGate(judge=gate_judge, confidence_threshold=0.5)
@@ -293,7 +293,7 @@ def test_temperatures_must_match_n_candidates(fake_backend, m1) -> None:
 def test_seed_propagation_distinct_per_candidate(fake_backend, m1, cs_tutor) -> None:
     """Each non-baseline candidate gets a distinct derived seed."""
     gate_judge = _ScriptedBackend(
-        [("you are an evaluator", "flag: drift\nconfidence: 0.9\nrationale: x")]
+        [("You are evaluating", "flag: drift\nconfidence: 0.9\nrationale: x")]
     )
     rerank_judge = _ScriptedBackend([("Evaluate how well", "[RESULT] 3")])
     extra_backend = _ScriptedBackend([])

@@ -8,6 +8,7 @@ filename composition) so a config-shape regression fails fast in local CI.
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -16,12 +17,21 @@ from omegaconf import OmegaConf
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = REPO_ROOT / "scripts" / "run_baseline.py"
 
+_MODULE_NAME = "_test_run_baseline"
+
 
 def _load_run_baseline_module():
-    """Import `scripts/run_baseline.py` as a module without invoking Hydra."""
-    spec = importlib.util.spec_from_file_location("_test_run_baseline", SCRIPT_PATH)
+    """Import `scripts/run_baseline.py` as a module without invoking Hydra.
+
+    Registers the loaded module in ``sys.modules`` so dataclasses defined
+    inside it can resolve their own ``cls.__module__`` (Python 3.11 raises
+    ``AttributeError`` on ``sys.modules.get(cls.__module__).__dict__`` if
+    the module isn't registered).
+    """
+    spec = importlib.util.spec_from_file_location(_MODULE_NAME, SCRIPT_PATH)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
+    sys.modules[_MODULE_NAME] = module
     spec.loader.exec_module(module)
     return module
 

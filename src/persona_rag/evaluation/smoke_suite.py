@@ -7,11 +7,11 @@ Ten prompts in each of three buckets:
 - ``instruction``: writing / summarization / light reasoning prompts. Probes
   instruction-following and coherence over ~128 tokens.
 - ``persona``: system-style instructions ("You are a cautious doctor..."). Probes
-  the chat-template path — especially the Gemma 2 ``system``-folding route, since
+  the chat-template path -- especially the Gemma 2 ``system``-folding route, since
   Gemma 2 has no native ``system`` role and folds it into the first user turn.
 
 The coherence heuristic ``looks_coherent`` is deliberately permissive: it catches
-the pathological failure modes fp16 quantization tends to produce (NaN → empty
+the pathological failure modes fp16 quantization tends to produce (NaN -> empty
 output, repeat loops, all-whitespace), without trying to judge quality. Quality
 judgments are made by hand-spot-checking the logged outputs.
 """
@@ -184,7 +184,7 @@ _MIN_UNIQUE_TRIGRAM_FRACTION = 0.5
 
 
 def looks_coherent(text: str) -> tuple[bool, str]:
-    """Return ``(is_ok, reason)`` — a permissive pathology check for fp16 Gemma2.
+    """Return ``(is_ok, reason)`` -- a permissive pathology check for fp16 Gemma2.
 
     Catches:
     - empty / whitespace-only output (common failure mode when logits NaN).
@@ -210,7 +210,7 @@ def looks_coherent(text: str) -> tuple[bool, str]:
                 return (
                     False,
                     f"only {unique_fraction:.0%} of 3-grams are unique "
-                    f"(most common: {most_common!r}, {count}x) — looks like a repeat loop",
+                    f"(most common: {most_common!r}, {count}x) -- looks like a repeat loop",
                 )
 
     return True, "ok"
