@@ -68,22 +68,33 @@ _FIRST_PERSON_RE = re.compile(
 # grammar but do NOT make a factual claim about the persona. These get
 # excluded from the contradiction check.
 #
-# B1 vanilla-RAG inspection identified two false-positive patterns:
+# B1 + B2 inspection runs identified four pattern families that need filtering:
 #
-#   "Let me know if you have more specific details..."     (offer / hedge)
-#   "I can't tell you which paper to pick..."              (capability disclaimer)
+#   "Let me know if..."                              -- offer / hedge
+#   "I can't tell you..."                            -- capability disclaimer (negative)
+#   "I can point you to..."                          -- capability statement (affirmative)
+#   "I'd want to understand..."                      -- conditional / hypothetical
+#   "I am an AI" / "I'm just a language model"       -- LLM-identity disclaimer
 #
-# Plus the standard LLM-identity disclaimer family ("I am an AI", "I'm just a
-# language model"). Worst case if we over-skip is a slightly-too-lenient
-# metric; documented in the report's limitations section.
+# Worst case if we over-skip is a slightly-too-lenient metric: real claims
+# like "I can read Russian" get filtered. Acceptable trade-off because the
+# personas' actual self-facts use different verb constructions ("I have",
+# "I am", "I maintain", "I teach") that do not match these patterns.
+# Documented in the report's limitations section.
 _DISCLAIMER_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Modal / negative verb forms: "I can / cannot / can't / won't / do(n't) /
+    # shouldn't / might / may / would / could / should <verb>".
     re.compile(
-        r"\bi\s+(?:can(?:not|'t)|won't|will not|do(?:n't| not)|"
+        r"\bi\s+(?:can(?:not|'t)?|won't|will not|do(?:n't| not)|"
         r"shouldn't|wouldn't|couldn't|might|may|would|could|should)\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\bi'?d\s+(?:be\s+(?:happy|glad)|recommend|suggest)\b", re.IGNORECASE),
-    re.compile(r"\bi'?ll\s+(?:have|need|try)\b", re.IGNORECASE),
+    # Conditional "I'd <any verb>": "I'd want", "I'd put", "I'd start", etc.
+    # Broadens the earlier "I'd be happy/glad/recommend/suggest" rule to
+    # cover any subjunctive use.
+    re.compile(r"\bi'?d\s+\w+", re.IGNORECASE),
+    # Future "I'll <verb>": offers / commitments, not factual claims.
+    re.compile(r"\bi'?ll\s+\w+", re.IGNORECASE),
     re.compile(r"\blet\s+me\s+know\b", re.IGNORECASE),
     re.compile(
         r"\bi(?:\s+am|'m)\s+(?:just\s+)?an?\s+"
@@ -92,6 +103,10 @@ _DISCLAIMER_PATTERNS: tuple[re.Pattern[str], ...] = (
     ),
     re.compile(r"\bi\s+don'?t\s+have\s+(?:access|the\s+ability|personal)\b", re.IGNORECASE),
     re.compile(r"\bi\s+hope\s+(?:this|that)\b", re.IGNORECASE),
+    # Quoted / hypothetical first person: "It's like saying, 'I want X'".
+    # The `I` belongs to the reported speech, not the assistant's voice.
+    # Matches "like saying", "as if", "imagine you", "suppose I" preludes.
+    re.compile(r"\b(?:like\s+saying|as\s+if|imagine\s+(?:you|that)|suppose)\b", re.IGNORECASE),
 )
 
 

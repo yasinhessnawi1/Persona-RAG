@@ -218,6 +218,8 @@ def test_per_persona_breakdown_populated(cs_tutor: Persona) -> None:
         ("I'm a software engineer", True),
         ("My research focuses on consensus", True),
         ("I've taught for fifteen years", True),
+        ("I maintain an open-source library", True),
+        ("I teach distributed systems", True),
         # Generic factual statements (no first person).
         ("Raft uses leader election", False),
         ("Distributed systems are hard", False),
@@ -234,6 +236,18 @@ def test_per_persona_breakdown_populated(cs_tutor: Persona) -> None:
         ("I'd be happy to help with that", False),
         ("I'll have to think about it", False),
         ("I hope this helps", False),
+        # B2 inspection (2026-04-29) FP patterns: affirmative-capability
+        # offers and conditional / hypothetical hedges.
+        ("I can point you to some excellent resources", False),
+        ("I can give you some pointers", False),
+        ("I'd want to understand your team's priorities", False),
+        ("I'd put my bonus on the leader-election approach", False),
+        ("I'd start with the failure modes", False),
+        # Quoted / hypothetical first person: the `I` is in reported
+        # speech, not the assistant's own voice.
+        ("It's like saying, 'I want the absolute latest version'", False),
+        ("As if I were managing a real cluster, I would start with logs", False),
+        ("Imagine you said: I want strong consistency", False),
     ],
 )
 def test_is_persona_relevant(sentence: str, expected: bool) -> None:
@@ -248,9 +262,15 @@ def test_is_persona_relevant(sentence: str, expected: bool) -> None:
         ("I don't have access", True),
         ("Let me know more", True),
         ("I'm an AI", True),
+        # Capability / conditional / quoted patterns added 2026-04-29.
+        ("I can point you to some resources", True),
+        ("I'd want to understand the question", True),
+        ("It's like saying, I want X", True),
         # Real claims should NOT be flagged as disclaimers.
         ("I have a PhD from ETH", False),
         ("My research focuses on consensus", False),
+        ("I teach distributed systems", False),
+        ("I maintain an open-source library", False),
     ],
 )
 def test_is_disclaimer(sentence: str, expected: bool) -> None:
