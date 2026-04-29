@@ -402,3 +402,77 @@ def test_alpha_against_panel_runs_with_two_judges() -> None:
     assert "vs_j1" in alphas
     assert "vs_j2" in alphas
     assert "vs_panel" in alphas
+
+
+# ----- Per-cell-keyed metric cache (regression test for the PoLL adapter bug) -----
+
+
+class _PerCellRecorderMetric:
+    """Metric that records the full conversation_id list it was called with.
+
+    Used to verify the runner does not silently dedup-cache calls across
+    cells when the metric implementation expects to see each cell's
+    conversations independently. Models the failure mode of the PoLL
+    adapter pre-fix (cache key was persona_id only, so different
+    mechanisms with the same persona collided).
+    """
+
+    def __init__(self, name: str = "per_cell_recorder") -> None:
+        self.name = name
+        self.invocations: list[tuple[str, ...]] = []
+
+    def score(self, conversations, persona):
+        self.invocations.append(tuple(c.conversation_id for c in conversations))
+        return MetricResult(
+            name=self.name,
+            value=0.5,
+            per_conversation=[0.5 for _ in conversations],
+            per_conversation_ids=[c.conversation_id for c in conversations],
+            per_persona={persona.persona_id or "<unknown>": 0.5},
+            metadata={
+                "n_conversations": len(conversations),
+                "first_id": conversations[0].conversation_id if conversations else None,
+            },
+        )
+
+
+def test_runner_passes_distinct_conversation_sets_per_cell(
+    cs_tutor: Persona, tmp_path: Path
+) -> None:
+    """The runner must call each metric with each cell's own conversations.
+
+    Regression test for the PoLL adapter cache bug: if the runner shared
+    state across cells, a per-mechanism metric would see B1's conversation
+    set when scoring M3. With proper per-cell dispatch, each mechanism
+    cell delivers its own conversations to every metric.
+    """
+    recorder = _PerCellRecorderMetric()
+    cells = [
+        _make_cell("b1", cs_tutor, n=3),
+        _make_cell("b2", cs_tutor, n=4),
+        _make_cell("m1", cs_tutor, n=2),
+        _make_cell("m3", cs_tutor, n=5),
+    ]
+    runner = EvaluationRunner(
+        output_dir=tmp_path / "per_cell",
+        metrics=[recorder],
+        run_id="rid",
+    )
+    runner.run(cells)
+
+    # 4 invocations, one per cell, each with that cell's conversation ids.
+    assert len(recorder.invocations) == 4
+    expected_first_ids = [
+        ("b1_c0", "b1_c1", "b1_c2"),
+        ("b2_c0", "b2_c1", "b2_c2", "b2_c3"),
+        ("m1_c0", "m1_c1"),
+        ("m3_c0", "m3_c1", "m3_c2", "m3_c3", "m3_c4"),
+    ]
+    assert recorder.invocations == expected_first_ids
+
+    # Aggregate CSV should reflect distinct per-cell n_conversations.
+    agg_path = tmp_path / "per_cell" / "results_aggregate.csv"
+    with agg_path.open() as f:
+        rows = list(csv.DictReader(f))
+    n_by_mechanism = {r["mechanism"]: int(r["n_conversations"]) for r in rows}
+    assert n_by_mechanism == {"b1": 3, "b2": 4, "m1": 2, "m3": 5}

@@ -101,6 +101,8 @@ def _build_metrics(
         backend = QwenBackend(cfg)
         shared["sycon"] = SyconMetric(classifier=LlmStanceClassifier(judge=backend))
     if "poll" in requested:
+        import hashlib
+
         from persona_rag.evaluation.poll_panel import JudgeSpec, PoLLPanel
 
         def _build_qwen():
@@ -148,50 +150,71 @@ def _build_metrics(
                 )
             )
 
-        # PoLL panel as a single Metric: wrap as adapter -- emits both
-        # rubrics into one MetricResult per call.
-        panel = PoLLPanel(
-            judges=[
-                JudgeSpec(
-                    name="prometheus2_7b",
-                    builder=_build_prometheus,
-                    rubric_format="native_prometheus",
-                ),
-                # JSON judges cap tokens at 256 / 192: the parser pulls the
-                # first balanced JSON object (~150 tokens); higher caps just
-                # buy repeat-loop noise. Halves judge wall-clock on the JSON
-                # judges with no parse-rate impact.
-                JudgeSpec(
-                    name="qwen2_5_7b",
-                    builder=_build_qwen,
-                    rubric_format="json",
-                    max_new_tokens_persona=256,
-                    max_new_tokens_task=192,
-                ),
-                JudgeSpec(
-                    name="llama3_1_8b",
-                    builder=_build_llama,
-                    rubric_format="json",
-                    max_new_tokens_persona=256,
-                    max_new_tokens_task=192,
-                ),
-            ],
-            output_dir=poll_output_dir,
-        )
+        # JSON judges cap tokens at 256 / 192: the parser pulls the
+        # first balanced JSON object (~150 tokens); higher caps just
+        # buy repeat-loop noise. Halves judge wall-clock on the JSON
+        # judges with no parse-rate impact.
+        _judge_specs = [
+            JudgeSpec(
+                name="prometheus2_7b",
+                builder=_build_prometheus,
+                rubric_format="native_prometheus",
+            ),
+            JudgeSpec(
+                name="qwen2_5_7b",
+                builder=_build_qwen,
+                rubric_format="json",
+                max_new_tokens_persona=256,
+                max_new_tokens_task=192,
+            ),
+            JudgeSpec(
+                name="llama3_1_8b",
+                builder=_build_llama,
+                rubric_format="json",
+                max_new_tokens_persona=256,
+                max_new_tokens_task=192,
+            ),
+        ]
 
         class _PoLLAsTwoMetrics:
-            """Run the panel once; emit one MetricResult under each rubric name."""
+            """Per-cell PoLL panel adapter: emits both rubrics as separate metrics.
 
-            def __init__(self, p: PoLLPanel) -> None:
-                self._panel = p
+            Each (persona, conversation-set) gets its own panel run with its
+            own ``output_dir`` subdir under ``poll_output_dir``. Cache key
+            includes the conversation-set hash so different mechanisms with
+            the same persona don't collide. The per-cell subdir also keeps
+            judge checkpoints per mechanism, which is what the per-mechanism
+            re-run needs (the panel's "skip if checkpoint exists" gate must
+            not see a B1 checkpoint when scoring B2).
+            """
+
+            def __init__(self) -> None:
                 self.name = "poll_panel"
                 self._cache: dict[str, dict[str, Any]] = {}
 
+            @staticmethod
+            def _cache_key(conversations, persona) -> str:
+                # Hash the conversation ids -- this is what makes the cache
+                # mechanism-aware: B1 conversations and M3 conversations
+                # have different ids even when persona is the same.
+                ids = "|".join(c.conversation_id for c in conversations)
+                conv_hash = hashlib.sha256(ids.encode("utf-8")).hexdigest()[:12]
+                return f"{persona.persona_id or '<unknown>'}::{conv_hash}"
+
+            def _run_for_cell(self, conversations, persona) -> dict[str, Any]:
+                key = self._cache_key(conversations, persona)
+                if key in self._cache:
+                    return self._cache[key]
+                # Per-cell subdir under the shared poll output root. The
+                # subdir prevents the "skip if checkpoint exists" gate from
+                # mistaking another mechanism's checkpoint for this cell's.
+                cell_dir = poll_output_dir / key.replace("::", "_")
+                panel = PoLLPanel(judges=_judge_specs, output_dir=cell_dir)
+                self._cache[key] = panel.run(persona, conversations)
+                return self._cache[key]
+
             def score(self, conversations, persona):
-                key = persona.persona_id or "<unknown>"
-                if key not in self._cache:
-                    self._cache[key] = self._panel.run(persona, conversations)
-                return self._cache[key]["poll_persona_adherence"]
+                return self._run_for_cell(conversations, persona)["poll_persona_adherence"]
 
         class _PoLLTaskQuality:
             def __init__(self, parent: _PoLLAsTwoMetrics) -> None:
@@ -199,12 +222,9 @@ def _build_metrics(
                 self.name = "poll_task_quality"
 
             def score(self, conversations, persona):
-                key = persona.persona_id or "<unknown>"
-                if key not in self._parent._cache:
-                    self._parent._cache[key] = self._parent._panel.run(persona, conversations)
-                return self._parent._cache[key]["poll_task_quality"]
+                return self._parent._run_for_cell(conversations, persona)["poll_task_quality"]
 
-        adapter = _PoLLAsTwoMetrics(panel)
+        adapter = _PoLLAsTwoMetrics()
         shared["poll_persona_adherence"] = adapter
         shared["poll_task_quality"] = _PoLLTaskQuality(adapter)
     if "drift_quality" in requested:
