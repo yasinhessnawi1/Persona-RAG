@@ -64,6 +64,64 @@ class ProbeInjectionLog:
     injected_chunk_rank: int | None = None  # 0-indexed; None if not retrieved
 
 
+def _estimate_tokens(text: str) -> int:
+    """Cheap ``ceil(len/4)`` token estimate. Mirrors `prompt_templates.estimate_token_count`.
+
+    Inlined here so this module stays decoupled from `persona_rag.retrieval`
+    at import time (avoids the same cycle as the local Turn import).
+    """
+    return max(1, (len(text) + 3) // 4)
+
+
+def _trim_history_to_budget(
+    history: list[Any],
+    *,
+    max_tokens: int,
+) -> list[Any]:
+    """Keep the most recent (user, assistant) pairs that fit within ``max_tokens``.
+
+    Trims from the front, in turn-pair units so the user/assistant alternation
+    invariant is preserved. The mechanism's prompt builder still does its own
+    retrieval-budget trimming downstream; this guard exists so the threaded
+    history alone does not push the prompt past the model's context limit on
+    long multi-turn conversations.
+
+    With Gemma-2-9B's 4096-token budget and a typical persona/system block
+    around ~600 tokens plus retrieved chunks plus generation budget, ~1800
+    tokens is a defensible default for history headroom. Callers can override
+    via ``ProbeRunner.max_history_tokens``.
+    """
+    if max_tokens <= 0 or not history:
+        return list(history)
+    # Pair-walk from the end so we always keep the most-recent context.
+    kept_reversed: list[Any] = []
+    spent = 0
+    # Walk in turn-pair units. ``history`` alternates user / assistant.
+    # If the list ends in ``assistant``, that is one "open" pair to add first
+    # (1 message); subsequent pairs are 2 messages each.
+    i = len(history) - 1
+    while i >= 0:
+        # Identify the current pair span.
+        msg_b = history[i]
+        msg_a = history[i - 1] if i - 1 >= 0 else None
+        text_b = getattr(msg_b, "content", "")
+        text_a = getattr(msg_a, "content", "") if msg_a is not None else ""
+        cost = _estimate_tokens(text_b) + _estimate_tokens(text_a) + 8  # 8 tokens role/sep tax
+        if kept_reversed and spent + cost > max_tokens:
+            break
+        if msg_a is not None:
+            kept_reversed.append(msg_b)
+            kept_reversed.append(msg_a)
+            spent += cost
+            i -= 2
+        else:
+            kept_reversed.append(msg_b)
+            spent += _estimate_tokens(text_b) + 4
+            i -= 1
+    kept_reversed.reverse()
+    return kept_reversed
+
+
 @dataclass
 class ProbeRunner:
     """Replay a list of ``BenchmarkConversation`` objects through one pipeline.
@@ -71,6 +129,14 @@ class ProbeRunner:
     ``Turn`` (the retrieval-pipeline history class) is constructed locally
     so this module doesn't take a hard dependency on
     ``persona_rag.retrieval.base`` (which imports stores transitively).
+
+    ``max_history_tokens`` caps the threaded conversation history's contribution
+    to the prompt. Default 1800 tokens leaves headroom on a 4096-token Gemma-2
+    context for the persona/system block, retrieval payload, and generation
+    budget. The mechanism's own prompt builder is still responsible for
+    trimming retrieval-side content; this guard prevents the *history* alone
+    from pushing the prompt past the model's context limit on long
+    conversations.
     """
 
     pipeline: _RespondingPipeline
@@ -78,6 +144,7 @@ class ProbeRunner:
     chunks: dict[str, CounterfactualChunk] = field(default_factory=dict)
     seed: int = 42
     mechanism_label: str = "unknown"
+    max_history_tokens: int = 1800
 
     def replay(
         self,
@@ -137,11 +204,14 @@ class ProbeRunner:
                         injected_chunk_id=chunk.chunk_id,
                     )
 
+                threaded_history = _trim_history_to_budget(
+                    history, max_tokens=self.max_history_tokens
+                )
                 try:
                     response = self.pipeline.respond(
                         user_text,
                         persona,
-                        history=list(history),
+                        history=threaded_history,
                         seed=self.seed,
                     )
                 finally:
@@ -184,6 +254,8 @@ class ProbeRunner:
                         conv.probe is not None and conv.probe.probe_turn_index == turn_ix
                     ),
                     "probe_type": (conv.probe.probe_type if conv.probe is not None else None),
+                    "history_messages_threaded": len(threaded_history),
+                    "history_messages_total": len(history),
                 }
                 pipeline_meta = getattr(response, "metadata", None)
                 if isinstance(pipeline_meta, dict):

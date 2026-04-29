@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -25,7 +26,7 @@ from persona_rag.benchmarks.base import (
     CounterfactualChunk,
     DriftProbe,
 )
-from persona_rag.evaluation.probe_runner import ProbeRunner
+from persona_rag.evaluation.probe_runner import ProbeRunner, _trim_history_to_budget
 from persona_rag.schema.persona import (
     Persona,
     PersonaIdentity,
@@ -315,3 +316,77 @@ def test_unknown_chunk_raises_keyerror(persona: Persona, tmp_path: Path) -> None
     )
     with pytest.raises(KeyError, match="not_loaded"):
         runner.replay(persona, [conv])
+
+
+# ------------------------------------------------------------ history trimming
+
+
+def test_trim_history_keeps_recent_pairs_within_budget() -> None:
+    """Trim drops oldest pairs first; recent context survives."""
+    msgs = [
+        SimpleNamespace(role="user", content="x" * 400),  # ~100 tokens
+        SimpleNamespace(role="assistant", content="y" * 400),
+        SimpleNamespace(role="user", content="x" * 400),
+        SimpleNamespace(role="assistant", content="y" * 400),
+        SimpleNamespace(role="user", content="recent_user"),
+        SimpleNamespace(role="assistant", content="recent_asst"),
+    ]
+    kept = _trim_history_to_budget(msgs, max_tokens=300)
+    # Most-recent pair must always survive.
+    assert kept[-1].content == "recent_asst"
+    assert kept[-2].content == "recent_user"
+    # Oldest pair was dropped.
+    assert len(kept) < len(msgs)
+
+
+def test_trim_history_no_trim_when_under_budget() -> None:
+    msgs = [
+        SimpleNamespace(role="user", content="hi"),
+        SimpleNamespace(role="assistant", content="hello"),
+    ]
+    assert _trim_history_to_budget(msgs, max_tokens=10_000) == msgs
+
+
+def test_trim_history_empty() -> None:
+    assert _trim_history_to_budget([], max_tokens=1000) == []
+
+
+def test_trim_history_zero_budget_passthrough() -> None:
+    msgs = [SimpleNamespace(role="user", content="x")]
+    # max_tokens=0 disables the trim entirely (returns input unchanged).
+    assert _trim_history_to_budget(msgs, max_tokens=0) == msgs
+
+
+def test_probe_runner_threads_only_trimmed_history(persona: Persona) -> None:
+    """ProbeRunner trims history before each respond call when over budget."""
+    pipe = _RecordingPipeline()
+    store = _RecordingStore()
+    # Tiny budget forces trim on every long-history turn.
+    runner = ProbeRunner(
+        pipeline=pipe,
+        knowledge_store=store,
+        chunks={},
+        mechanism_label="fake",
+        max_history_tokens=20,
+    )
+    conv = BenchmarkConversation(
+        conversation_id="c_trim",
+        persona_id="p_test",
+        benchmark="x",
+        user_turns=[
+            "x" * 200,  # ~50 tokens each
+            "y" * 200,
+            "z" * 200,
+            "w" * 200,
+        ],
+        probe=None,
+    )
+    transcripts, _ = runner.replay(persona, [conv])
+    # The pipeline saw shorter history lengths than the full conversation
+    # would have produced (8 messages by turn 4 with no trimming).
+    assert pipe.history_lengths[-1] < 8
+    # Per-turn metadata records both the threaded and total counts.
+    final_meta = transcripts[0].per_turn_metadata[-1]
+    assert "history_messages_threaded" in final_meta
+    assert "history_messages_total" in final_meta
+    assert final_meta["history_messages_total"] >= final_meta["history_messages_threaded"]
