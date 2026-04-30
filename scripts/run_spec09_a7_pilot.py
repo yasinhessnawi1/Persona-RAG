@@ -68,7 +68,19 @@ MECHANISM_LABEL = "B2"
 
 
 def _build_responder() -> Any:
-    """Same backend config as the M3-vs-baselines pilot (decision #001 Gemma-2-9B 4-bit fp16 eager)."""
+    """Same backend config as the M3-vs-baselines pilot (Gemma-2-9B 4-bit fp16 eager).
+
+    ``max_input_tokens`` is set to **3500** (not the project default 4096) for
+    a Gemma-2 eager-attention reason: when the encoded prompt fills the full
+    4096-token context, the next-token forward pass produces a 4097-shaped
+    ``attn_weights`` while the precomputed sliding-window ``causal_mask`` is
+    locked at 4096, raising
+    ``RuntimeError: tensor a (4097) must match tensor b (4096) at dim 3``.
+    Capping the encoder at 3500 leaves 596 tokens of headroom over the 4096
+    sliding-window boundary so generation can proceed without overrunning the
+    mask. ``PromptPersonaRAG.max_input_tokens`` below is set to the same value
+    so the retrieval-side budget calc agrees with the encoder cap.
+    """
     cfg = HFBackendConfig(
         model_id="google/gemma-2-9b-it",
         name="gemma2-9b-it",
@@ -78,7 +90,7 @@ def _build_responder() -> Any:
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=True,
-        max_input_tokens=4096,
+        max_input_tokens=3500,
         trust_remote_code=False,
         warmup_nan_guard=True,
     )
@@ -119,6 +131,7 @@ def _load_persona_and_b2(
         backend=responder,
         knowledge_store=knowledge_store,
         few_shots=FewShotBundle.from_yaml(few_shots_path),
+        max_input_tokens=3500,  # match _build_responder's encoder cap (see docstring)
     )
     return persona, b2, knowledge_store
 

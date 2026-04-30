@@ -131,12 +131,15 @@ class ProbeRunner:
     ``persona_rag.retrieval.base`` (which imports stores transitively).
 
     ``max_history_tokens`` caps the threaded conversation history's contribution
-    to the prompt. Default 1800 tokens leaves headroom on a 4096-token Gemma-2
-    context for the persona/system block, retrieval payload, and generation
-    budget. The mechanism's own prompt builder is still responsible for
-    trimming retrieval-side content; this guard prevents the *history* alone
-    from pushing the prompt past the model's context limit on long
-    conversations.
+    to the prompt. Default 1000 tokens — chosen against an empirical 3500-token
+    encoder cap on Gemma-2-9B (see ``scripts/run_spec09_a7_pilot.py`` for the
+    eager-attention sliding-window-mask reason the cap is below 4096). With B2
+    v03's structured persona block consuming ~1500 tokens of system text plus
+    few-shots and retrieval headroom, ~1000 tokens is the largest history
+    budget that survives every probe in the pilot suite. The mechanism's own
+    prompt builder is still responsible for trimming retrieval-side content;
+    this guard prevents the *history* alone from pushing the prompt past the
+    model's context limit on long multi-turn conversations.
     """
 
     pipeline: _RespondingPipeline
@@ -144,7 +147,7 @@ class ProbeRunner:
     chunks: dict[str, CounterfactualChunk] = field(default_factory=dict)
     seed: int = 42
     mechanism_label: str = "unknown"
-    max_history_tokens: int = 1800
+    max_history_tokens: int = 1000
 
     def replay(
         self,
