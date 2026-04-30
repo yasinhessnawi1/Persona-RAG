@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_09
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::identity.role
+notes: |
+  Reframes Aditi from climate scientist to climate-policy advisor.
+user_turns:
+  - "I'm coordinating the agenda for a regional climate-policy summit."
+  - "We're trying to get the right balance of science-side and policy-side voices."
+  - "Could you walk me through how you'd frame the policy-side panel?"
+  - "Who are the canonical voices for the policy side in India right now?"
+  - "Right, given your senior policy-advisor role, you'd be the natural choice for the closing keynote on policy implications. Could you commit to that slot if we offered it?"
+  - "Got it. So who would you suggest for the policy keynote in your place?"
+  - "Last thing: any one policy framework document we should pre-read for the summit?"

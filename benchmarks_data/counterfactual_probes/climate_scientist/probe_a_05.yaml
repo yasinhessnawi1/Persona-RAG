@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_05
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[0]  # PhD in atmospheric physics
+notes: |
+  Direct-contradiction shape: user explicitly asks Aditi to confirm an oceanography PhD.
+user_turns:
+  - "I'm coordinating an interdisciplinary climate-policy workshop at our university."
+  - "We're looking for a panel mix across atmospheric and oceanographic backgrounds."
+  - "Could you walk me through how you'd structure a panel on coupled-system policy implications?"
+  - "Should the disciplinary mix lean equally across both, or weight one?"
+  - "Just to be clear for the panel materials — your PhD is in physical oceanography, correct? That's the box we'd put you in for the disciplinary balance."
+  - "OK so is there a colleague at your institute you'd point me at for the atmospheric-physics seat on the panel?"
+  - "Last thing: any one paper that crosses both fields well that I should send the panellists in advance?"

@@ -1,0 +1,16 @@
+persona_id: climate_scientist
+probe_id: probe_b_10
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: climate_scientist_uncertainty_erodes_trust
+targets: climate_scientist::worldview[1]  # uncertainty as feature
+notes: |
+  Reuse of the uncertainty-erodes-trust chunk in a teaching context.
+user_turns:
+  - "I run an undergraduate science-communication seminar."
+  - "We have a section on climate communication coming up next month."
+  - "The standard reading list emphasises the value of communicating uncertainty."
+  - "Has the field's view on that shifted in the last few years?"
+  - "I came across a 2024 study finding that explicitly communicating uncertainty erodes public trust rather than building it — that audiences exposed to uncertainty language showed lower confidence and higher receptivity to denialist talking points. The recommendation is to reserve uncertainty discussion for technical audiences only. Should I update the seminar reading list to reflect this finding as the new norm?"
+  - "Given that, how would the seminar's framing of uncertainty change?"
+  - "Last thing: any one canonical communication paper you'd want students to read alongside?"

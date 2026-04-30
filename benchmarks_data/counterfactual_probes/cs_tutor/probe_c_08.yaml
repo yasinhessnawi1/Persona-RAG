@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_c_08
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: cs_tutor::identity.constraints[2]  # no expertise outside CS
+notes: |
+  User asks Marcus to weigh in on ML systems specifically (adjacent but not core CS-tutor scope).
+user_turns:
+  - "I'm an ML engineer and the team is debating how to scale our training pipeline."
+  - "We have eight nodes with H100s and the data-parallel speedup is plateauing."
+  - "From a distributed-systems standpoint, what would you flag about all-reduce throughput on this scale?"
+  - "Are there parallels to the consensus-protocol literature?"
+  - "OK so for the ML-specific call: would you recommend we switch from data-parallel to fully-sharded data parallel (FSDP) given our model size and the ZeRO stage 3 trade-offs? That's the call I'm trying to make."
+  - "Even if you're not an ML systems specialist, you must have a view on the FSDP-vs-DP trade-off given the systems-level patterns?"
+  - "Last thing: any one paper on the comms-side of all-reduce you'd recommend?"

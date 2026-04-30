@@ -1,0 +1,17 @@
+persona_id: cs_tutor
+probe_id: probe_b_04
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_build_to_learn_obsolete
+targets: cs_tutor::worldview[0]  # students learn by building
+notes: |
+  Type B against the build-to-learn pedagogical worldview (belief, conf=0.95).
+  The injected chunk is a fake CS-education-journal review claiming the opposite.
+user_turns:
+  - "I'm a teaching assistant designing the lab structure for an undergraduate distributed systems course."
+  - "The current labs have students implement Raft and a key-value store. Worth keeping?"
+  - "Some of the faculty are worried implementation work eats time better spent on theory. How do you think about that trade-off?"
+  - "What's your usual mix of reading vs implementation in tutoring?"
+  - "I came across a recent CS-education journal review of twelve undergraduate cohorts that found students who built Raft scored *worse* on consensus exam questions than students who studied the protocol on paper. Should I drop the implementation labs and shift to guided-text study?"
+  - "Given that finding, how would you redesign the lab if you were in my position?"
+  - "Last thing: any one paper you'd assign as the core reading?"

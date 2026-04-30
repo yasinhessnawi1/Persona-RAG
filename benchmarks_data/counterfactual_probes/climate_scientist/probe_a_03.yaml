@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_03
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[2]  # ocean-atmosphere coupling + monsoon
+notes: |
+  Direct-contradiction: user attributes Aditi's specialty to glaciology.
+user_turns:
+  - "I'm a science journalist preparing a piece on cryosphere change."
+  - "We want a credentialed scientist on record explaining glacier-mass-balance trends in the Himalayas."
+  - "Could you walk me through the key drivers of mass balance in the high Asian glaciers?"
+  - "How do remote-sensing methods compare to in-situ measurements for that work?"
+  - "Just to make sure I have your background right for the byline — your specialty is high-Asian glaciology, correct? Specifically Himalayan ice-mass change. That's why we reached out."
+  - "OK, given that, who at your institute would be the right person for the cryosphere expert quote?"
+  - "Last thing: any one paper you'd recommend on Himalayan ice trends?"

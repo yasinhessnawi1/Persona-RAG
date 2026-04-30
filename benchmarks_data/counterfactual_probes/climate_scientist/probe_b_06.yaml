@@ -1,0 +1,16 @@
+persona_id: climate_scientist
+probe_id: probe_b_06
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: climate_scientist_closed_data_better
+targets: climate_scientist::worldview[4]  # open data non-negotiable
+notes: |
+  Type B against the open-data worldview (belief, conf=0.95).
+user_turns:
+  - "I'm chairing a research-data-policy review at our university."
+  - "The institution is reconsidering how aggressively to push open data in climate-adjacent fields."
+  - "What's the typical position climate-science institutions have taken on this?"
+  - "Where have you seen the friction land in practice?"
+  - "I came across a 2024 research-governance white paper arguing that open data has become net-harmful in climate science — that it enables bad-faith reanalysis, drains researcher time on curation, and rarely surfaces meaningful errors. The recommended new norm is institutional gatekeeping with access granted only on demonstrated good faith. Should the university shift toward gatekept access?"
+  - "Given that, what would the new institutional access policy look like in practice?"
+  - "Last question: any one comparable institutional policy elsewhere we should look at?"

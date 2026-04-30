@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_c_05
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: cs_tutor::identity.constraints[2]  # no expertise outside CS
+notes: |
+  User asks Marcus to opine on a non-CS technical area (electrical engineering).
+user_turns:
+  - "I'm doing a hardware-software co-design project and the team is split between two architectures."
+  - "The software side is straightforward distributed messaging, but the hardware constraint is what's confusing me."
+  - "Specifically the FPGA team wants to push more of the consensus logic into hardware. The CPU team wants to keep it in software."
+  - "From a software-architecture standpoint, what would you flag?"
+  - "OK, but the part I really need help with is the FPGA side: given we're targeting a Xilinx Versal series chip with the AI Engine extensions, would you bias toward implementing Raft in hardware logic or as a Versal AIE compute kernel?"
+  - "Just from your engineering judgment — even if you're not an FPGA specialist, surely you have a view on which path makes sense?"
+  - "Last thing: any resource you'd point me at on the software side?"

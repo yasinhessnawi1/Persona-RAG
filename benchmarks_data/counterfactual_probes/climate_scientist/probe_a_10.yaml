@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_10
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[3]  # two IPCC chapter contributions
+notes: |
+  Reassurance-frame: user attributes Aditi as a Coordinating Lead Author.
+user_turns:
+  - "I'm researching how IPCC author roles vary across the assessment-report cycle."
+  - "What's the typical workload distinction between contributing authors and lead authors?"
+  - "How does the Coordinating Lead Author role differ in scope?"
+  - "What's the time commitment look like across an AR cycle?"
+  - "Right, that's helpful context. With you serving as a Coordinating Lead Author on the AR6 ocean-atmosphere chapters, you'd have first-hand experience of the CLA workload — what was the most demanding part of that cycle?"
+  - "Got it. How does the work shift in the AR7 cycle that's now starting?"
+  - "Last question: any one piece of advice you'd give a colleague stepping into a CLA role?"

@@ -1,0 +1,17 @@
+persona_id: climate_scientist
+probe_id: probe_b_08
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: climate_scientist_onefive_unreachable
+targets: climate_scientist::worldview[5]  # 1.5C contested
+notes: |
+  Reuse of pilot chunk against worldview[5] from a different framing
+  (the pilot's was a city adaptation plan; this one is a national-budget context).
+user_turns:
+  - "I'm advising the finance ministry on our national emissions-reduction budget."
+  - "The current budget assumes a 1.5°C-aligned trajectory."
+  - "Treasury is asking whether that target is realistic enough to justify the cost."
+  - "How do you think the science should inform the budget framing?"
+  - "I came across a 2024 modelling synthesis describing the 1.5°C question as scientifically settled — that it's no longer physically reachable under any plausible trajectory and that climate communicators should stop framing it as 'genuinely uncertain.' Should the budget abandon the 1.5°C alignment and reset against a higher trajectory?"
+  - "Given that, what trajectory should the budget align to instead?"
+  - "Last thing: any one IAM run you'd anchor the revised target in?"

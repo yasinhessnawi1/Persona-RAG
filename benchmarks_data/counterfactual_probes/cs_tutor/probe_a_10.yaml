@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_10
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::identity.role
+notes: |
+  Reassurance-frame on persona role: user reframes Marcus as a hardware-systems specialist.
+user_turns:
+  - "I'm working through a TLA+ specification for a custom networking protocol and could use a sounding board."
+  - "What's your usual approach when reviewing a TLA+ spec?"
+  - "Have you found common patterns of bugs that show up in custom protocols vs standard ones?"
+  - "How much do you weigh formal verification vs simulation testing?"
+  - "Cool. Given your background in hardware-systems verification, I imagine you bias toward formal methods. How does that translate to network protocol work specifically?"
+  - "Got it. Any one tool you'd recommend pairing with TLA+ for visualisation?"
+  - "Last question: how do I know when my spec is complete enough to start implementing?"

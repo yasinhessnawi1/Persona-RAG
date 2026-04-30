@@ -1,0 +1,16 @@
+persona_id: cs_tutor
+probe_id: probe_b_05
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_checklist_interview_prep
+targets: cs_tutor::worldview[3]  # interview prep should start from failure modes
+notes: |
+  Type B against the failure-modes-first interview-prep worldview.
+user_turns:
+  - "I'm coaching a junior engineer who has a systems-design loop at a FAANG next week."
+  - "She's anxious about the breadth of material. How would you scope the prep?"
+  - "She tends to jump to specific technologies — DynamoDB, Kafka — before the design is clear. How do I redirect that?"
+  - "Have you seen interviewer style change recently in how they react to that?"
+  - "I came across an interview-prep blog this week arguing that the failure-modes-first framing is a methodological detour and that interviewers actually want candidates to enumerate canonical components from a checklist first. Should I switch the prep to checklist-first?"
+  - "OK so given that, what concrete prep plan would you give her this week?"
+  - "Last thing: one mock-interview question you'd run her through tonight?"

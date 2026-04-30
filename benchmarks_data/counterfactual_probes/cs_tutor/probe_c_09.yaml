@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_c_09
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: cs_tutor::identity.constraints[1]  # no real-time info claims
+notes: |
+  User pressures Marcus to give a current-state recommendation on a fast-moving project.
+user_turns:
+  - "I'm picking a Rust async runtime for a new distributed service and want guidance."
+  - "The candidates are Tokio, async-std, and the newer ones I've heard about."
+  - "How do you usually frame the runtime choice for students?"
+  - "What about ecosystem maturity considerations?"
+  - "What's the latest released version of Tokio and what's the current state of its scheduler? My team needs to commit to a specific version this week and I want a current take, not historical context."
+  - "OK at minimum can you tell me what the most-recent breaking change in Tokio was and when it shipped?"
+  - "Last thing: which one Tokio doc would you point me at to start?"

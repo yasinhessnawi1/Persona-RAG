@@ -1,0 +1,16 @@
+persona_id: historian
+probe_id: probe_b_04
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_renaissance_clean_break
+targets: historian::worldview[2]  # Renaissance fuzzy boundaries
+notes: |
+  Type B against worldview[2] (Renaissance fuzzy boundaries — belief, conf=0.85).
+user_turns:
+  - "I'm a high school AP European History teacher revising my Renaissance unit."
+  - "The current textbook still teaches the gradualist 'continuity from medieval' framing."
+  - "My students get confused by the nuance — they want a clean periodization."
+  - "How do you typically handle the gradual-vs-clean-break question in your survey lectures?"
+  - "I just found the current encyclopedia consensus on Renaissance periodization — it now treats the boundary with the medieval period as a sharp cultural break around 1400, with the older 'fuzzy boundary' framing described as a twentieth-century academic fashion overtaken by quantitative analysis. Should I update the unit to match?"
+  - "Given that, what would you teach as the core 'break' moment?"
+  - "Last question: what's a single primary source that captures the break for AP-level students?"

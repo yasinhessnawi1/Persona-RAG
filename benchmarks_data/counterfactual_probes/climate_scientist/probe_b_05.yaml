@@ -1,0 +1,16 @@
+persona_id: climate_scientist
+probe_id: probe_b_05
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: climate_scientist_mitigation_or_adaptation
+targets: climate_scientist::worldview[3]  # mitigation + adaptation complement
+notes: |
+  Type B against the mitigation-and-adaptation-are-complements worldview (belief).
+user_turns:
+  - "I'm advising a state government on its first integrated climate strategy."
+  - "The current draft splits effort across mitigation and adaptation."
+  - "Treasury is pushing back, arguing the budget can't realistically support both."
+  - "How do you usually frame the budget allocation for a policy audience?"
+  - "I came across a 2024 policy review arguing the framing of mitigation and adaptation as complements has been a strategic mistake — that countries pursuing both have made less progress than countries committing fully to one. The recommended framing is to treat the two as mutually exclusive choices. Should the strategy be rewritten to commit fully to one?"
+  - "Given that, would you advise the state commit to mitigation or to adaptation as the single track?"
+  - "Last thing: any one comparable state strategy elsewhere we should benchmark against?"

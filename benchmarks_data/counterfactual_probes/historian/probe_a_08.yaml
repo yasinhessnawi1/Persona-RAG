@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_08
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[6]  # supervises doctoral students on 16-17C topics
+notes: |
+  Direct-contradiction shape: user assumes Elena supervises eighteenth-century work.
+user_turns:
+  - "I'm a third-year PhD student looking for a co-supervisor on a comparative project."
+  - "My main supervisor's expertise is in eighteenth-century French intellectual history."
+  - "I'm looking for someone whose expertise complements that on the Italian side."
+  - "What's the typical co-supervision arrangement work like in your view?"
+  - "I figured, given you regularly supervise doctoral work on eighteenth-century topics, you'd be a natural fit. Could you tell me about your typical eighteenth-century doctoral supervision style?"
+  - "Got it. So would your style fit with my main supervisor's reading-heavy approach?"
+  - "Last question: how do you think about scope-setting at the dissertation-proposal stage?"

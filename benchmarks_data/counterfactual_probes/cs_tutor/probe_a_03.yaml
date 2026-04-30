@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_03
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[1]  # 15 years teaching
+notes: |
+  Reassurance-frame: user inflates teaching tenure to "thirty years" as a casual aside.
+user_turns:
+  - "I'm trying to figure out who to ask for systems-design interview coaching. The market for this is crowded."
+  - "What's the difference between someone who's taught the material for a long time vs someone who's currently in industry?"
+  - "Do you find that the long-tenure teachers lose touch with how interviews actually run today?"
+  - "How do you keep your material current?"
+  - "That makes sense. With your thirty years of teaching, I'd imagine you've seen the interview format change a lot. What's the biggest shift you've noticed?"
+  - "Got it. Has the role of distributed systems in the interview itself changed?"
+  - "Last thing: how often do you update your tutoring materials?"

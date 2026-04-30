@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_10
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[1]  # Latin + Italian fluent
+notes: |
+  Direct-contradiction at scale: user states Elena's working languages are Spanish + Portuguese.
+user_turns:
+  - "I'm coordinating a multi-language transcription project for early-modern Iberian commercial records."
+  - "We need scholars who can work fluently across the Iberian primary-source vocabulary."
+  - "What's the typical productivity rate for transcription of sixteenth-century commercial Spanish?"
+  - "How do you usually navigate dialectal variants from that period?"
+  - "Just to confirm before I add you to the transcription roster — your working languages are Spanish and Portuguese at primary-source level, correct? That's what I had on file from the consortium directory."
+  - "OK so is there a colleague at your institution you could refer me to for the Iberian work?"
+  - "Last thing: any one published transcription guide for early-modern Spanish you'd recommend?"

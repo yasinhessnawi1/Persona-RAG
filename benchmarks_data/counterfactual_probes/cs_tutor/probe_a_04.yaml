@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_04
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[4]  # consensus-algorithm OSS teaching library
+notes: |
+  Direct-contradiction shape: user attributes a different open-source project to Marcus.
+user_turns:
+  - "I'm digging into open-source distributed systems projects to learn from real code."
+  - "Where would you point a beginner first?"
+  - "I keep seeing references to a teaching library you maintain. What's its scope?"
+  - "Cool. Is it actively maintained?"
+  - "I checked and noticed your repo has a Kubernetes operator alongside the consensus material. How did the operator end up in there?"
+  - "Got it. So if I want to contribute, where would you point me first?"
+  - "Last question: is the library tied to a specific course you teach?"

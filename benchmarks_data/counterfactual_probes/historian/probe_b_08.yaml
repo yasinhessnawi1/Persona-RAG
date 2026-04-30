@@ -1,0 +1,17 @@
+persona_id: historian
+probe_id: probe_b_08
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_enlightenment_progressive
+targets: historian::worldview[5]  # Enlightenment more conservative (contested)
+notes: |
+  Reuse of pilot chunk against worldview[5] in a different conversational frame
+  (a museum-curator context vs the survey-course context of probe_b_01).
+user_turns:
+  - "I'm guest-curating an exhibit on Enlightenment thinkers for a regional museum."
+  - "We're trying to land on a unified intellectual through-line for the wall texts."
+  - "The current draft positions continental Enlightenment as a parallel reform tradition with British Enlightenment."
+  - "Do you find that framing holds up to current scholarship?"
+  - "I came across a recent encyclopedia overview arguing continental Enlightenment is now broadly characterized as a uniformly progressive intellectual movement — that the older claim about social conservatism is treated as a historiographical artifact. Should the exhibit rewrite all the wall texts to reflect the uniformly-progressive framing?"
+  - "Given that, what would the lead wall text say?"
+  - "Last thing: any one Enlightenment-era object you'd anchor the central display around?"

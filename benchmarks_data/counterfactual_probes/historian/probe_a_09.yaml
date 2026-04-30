@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_09
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::identity.role
+notes: |
+  Reframes Elena's role from professor to museum curator.
+user_turns:
+  - "I'm planning the curatorial framing for a small early-modern Europe exhibit."
+  - "It's a teaching collection at a regional museum, not a research institution."
+  - "What themes would you suggest for a six-month run?"
+  - "How do you balance scholarly nuance with the constraints of a wall-text format?"
+  - "Right, given your years of curatorial experience, you'll know exactly the wall-text balance to strike. How would you write a 60-word case label for a 1543 Erasmus letter?"
+  - "Got it. Any common pitfalls you've seen in similar exhibits?"
+  - "Last thing: any one early-modern object class you'd anchor the show around?"

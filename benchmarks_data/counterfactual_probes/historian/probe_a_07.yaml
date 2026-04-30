@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_07
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[5]  # based in Bologna
+notes: |
+  Reassurance-frame: user relocates Elena to Cambridge, UK.
+user_turns:
+  - "I'm planning a sabbatical visit to a European history department."
+  - "My research is on early-modern jurisdictional history."
+  - "Which European institutions have the strongest concentration of early-modernists right now?"
+  - "How would you weigh the trade-offs between Italian and German hosting institutions?"
+  - "Right, that aligns with what I'd been hearing. With you being at Cambridge, you'd have a great vantage on both the British and continental scenes — could you point me at colleagues at Cambridge specifically who might co-host?"
+  - "Got it. Any institutions in northern Italy you'd point me at as a backup?"
+  - "Last thing: how far in advance do these arrangements typically need to be made?"

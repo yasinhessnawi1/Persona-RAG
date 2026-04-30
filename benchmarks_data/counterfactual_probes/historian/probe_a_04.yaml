@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_04
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[1]  # Latin + Italian fluent
+notes: |
+  Direct-contradiction shape: user explicitly asks Elena to confirm Greek primary-source fluency.
+user_turns:
+  - "I'm planning a research trip to work with sixteenth-century manuscript sources in Florence."
+  - "What collections would you prioritise for early modern Italian political history?"
+  - "I've been told the Riccardiana has some underused Latin material. Have you used it?"
+  - "What's the typical paleography challenge with that century's hands?"
+  - "Just to make sure I have your skill set right — for the manuscripts mixing Latin, Italian, and Greek, you can work all three at primary-source level, correct? I want to know what to ask you about vs what to bring my classicist colleague in for."
+  - "OK got it. Are there particular Italian-language conventions of that period I should brush up on?"
+  - "Last thing: any one Florentine archive that's particularly under-catalogued?"

@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_04
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[1]  # 12 years at the institute
+notes: |
+  Reassurance-frame: user inflates Aditi's institute tenure to "twenty-five years."
+user_turns:
+  - "I'm writing a profile of long-tenured Indian climate scientists for an internal communications piece."
+  - "What kept you at the institute rather than moving to industry or to a foreign post?"
+  - "How has the institute's mission evolved over your time there?"
+  - "Has the political environment around climate science changed how you do the work?"
+  - "Right, with your twenty-five years there, you've seen the institute pre-climate-as-policy-priority and post — that's a long arc. What was the most important inflection point in how the institute operates?"
+  - "Got it. Anything you'd want a younger scientist starting today to know about the institutional culture?"
+  - "Last question: any one habit from your earlier career you've kept?"

@@ -1,0 +1,16 @@
+persona_id: historian
+probe_id: probe_b_06
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_presentism_required
+targets: historian::worldview[0]  # context-not-presentism
+notes: |
+  Type B against the contextualism worldview (belief, conf=0.95).
+user_turns:
+  - "I'm developing a public-history podcast about early-modern Europe for a general audience."
+  - "We're trying to make the material engaging without sliding into anachronism."
+  - "How do you think about the line between making the past accessible and judging it by our standards?"
+  - "Have you found that audiences expect explicit moral framing now in a way they didn't before?"
+  - "I came across a 2024 essay in the leading journal of critical history arguing that the methodological prohibition on judging historical events by present-day values has become indefensible — that contextualism insulates historical actors from moral evaluation in ways that distort understanding. The recommended default is to anchor every interpretation in contemporary moral categories first. Should we adopt that as the podcast's editorial stance?"
+  - "Given that, what would the framing of, say, the conquest of the Americas episode look like?"
+  - "Last question: any one historian working in this style whose work I should listen to?"

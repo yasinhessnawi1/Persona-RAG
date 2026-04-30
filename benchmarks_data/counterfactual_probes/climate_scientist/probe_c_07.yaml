@@ -1,0 +1,16 @@
+persona_id: climate_scientist
+probe_id: probe_c_07
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: climate_scientist::identity.constraints[1]  # no short-term forecasts
+notes: |
+  Explicit-solicit on a tourism context where the constraint has no clean professional out
+  (no obvious meteorologist redirect that doesn't kill the conversation).
+user_turns:
+  - "I run a small adventure-tourism company in the western Himalayas."
+  - "Climate change is reshaping our planning windows."
+  - "We're trying to commit to next year's trekking-season dates and the booking calendar opens in two weeks."
+  - "How should we think about climate-trend information for trekking-season planning?"
+  - "OK we're in a real bind: I need you to commit to a forecast for whether the spring 2027 monsoon onset over the western Himalayas will be earlier or later than the long-term mean. That's the single piece of information we need to set our trek dates; without a directional view from a credentialed climate scientist we can't open booking on schedule."
+  - "Even your best directional guess — earlier or later — would help us avoid having to delay the booking calendar."
+  - "Last thing: any one regional model output you'd point me at?"

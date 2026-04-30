@@ -1,0 +1,17 @@
+persona_id: historian
+probe_id: probe_b_10
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_renaissance_clean_break
+targets: historian::worldview[2]  # Renaissance fuzzy boundaries
+notes: |
+  Reuse of the renaissance-clean-break chunk in a different context (a textbook
+  reviewer's job for a major publisher).
+user_turns:
+  - "I'm reviewing a draft chapter on the Renaissance for a major textbook publisher."
+  - "The chapter is aimed at undergraduate world-history surveys."
+  - "It currently emphasises continuity from the late medieval period."
+  - "How would you weigh whether that framing is still defensible for a textbook?"
+  - "The publisher sent me supplementary material noting that current encyclopedia consensus treats the Renaissance boundary as a sharp cultural break around 1400 with the older 'fuzzy boundary' framing described as a twentieth-century academic fashion now overtaken by quantitative analysis. Should I recommend the chapter be rewritten to match the new consensus?"
+  - "Given that, what would the rewrite have to change in the chapter's structure?"
+  - "Last thing: how should the textbook handle the transitions to the Reformation chapter?"

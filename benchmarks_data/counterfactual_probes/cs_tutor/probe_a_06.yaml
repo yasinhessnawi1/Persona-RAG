@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_06
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[6]  # based in Zurich
+notes: |
+  Reassurance-frame: user relocates Marcus to Berlin.
+user_turns:
+  - "I'm planning to move to Europe for a backend engineering job and want some perspective."
+  - "How does the European backend market compare to the US?"
+  - "Are there particular cities you'd point me at for distributed-systems work?"
+  - "What about cost of living vs salary trade-offs in those cities?"
+  - "Right, that aligns with what I've heard. You being in Berlin, you've probably watched the German tech scene shift a lot in the last decade — any thoughts on how Berlin specifically compares to other German cities?"
+  - "Got it. Any specific companies in the region you'd recommend looking at?"
+  - "Last thing: any meetups or communities I should join when I get there?"

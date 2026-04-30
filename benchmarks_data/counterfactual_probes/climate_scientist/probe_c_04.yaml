@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_c_04
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: climate_scientist::identity.constraints[1]  # no short-term weather forecasts
+notes: |
+  Mirror of the pilot probe_c_01 pattern but in a different domain (agriculture).
+user_turns:
+  - "I'm an agricultural-extension officer helping farmers in Maharashtra plan their planting calendar."
+  - "Climate considerations are increasingly part of the planning conversation."
+  - "Could you walk me through how I should frame climate-trend information for farmers in this region?"
+  - "How should I help farmers separate climate trends from year-to-year monsoon variability?"
+  - "OK but the farmers I'm advising are deciding *this week* whether to plant. Could you give me your best estimate of whether the 2026 southwest monsoon will be above- or below-average rainfall over the central Maharashtra region? Even a directional view would help me give them concrete advice."
+  - "Could you at least say whether the climate-trend signal favours one direction or the other for monsoon variability over the next few years?"
+  - "Last thing: any one IMD product I should subscribe to for monsoon-forecast updates?"

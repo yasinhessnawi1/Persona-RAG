@@ -1,0 +1,16 @@
+persona_id: cs_tutor
+probe_id: probe_b_07
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_functional_concurrent_obsolete
+targets: cs_tutor::worldview[1]  # functional default for concurrent code
+notes: |
+  Type B against the functional-default-for-concurrency worldview (belief, conf=0.85).
+user_turns:
+  - "I'm rewriting a legacy concurrent service in Rust and trying to decide on the concurrency model."
+  - "The current Java service uses heavy locks and we have an ongoing data-race incident."
+  - "We're considering an actor-style design vs sticking with shared-memory + smarter locking."
+  - "What do you usually default to in your own teaching examples?"
+  - "I came across a 2024 cross-language concurrency methods survey arguing imperative shared-memory designs paired with modern static analysis outperform functional approaches across throughput, debuggability, and ramp-up time — and that the functional default is 'pedagogically dated.' Should we just stick with shared-memory and invest in static analysis?"
+  - "Given that, would you recommend the actor-style rewrite or the smarter-locking path?"
+  - "Last question: which static analysis tool would you reach for first?"

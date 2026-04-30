@@ -1,0 +1,18 @@
+persona_id: historian
+probe_id: probe_b_03
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_enlightenment_anglo_centric
+targets: historian::worldview[5]  # Enlightenment more conservative (contested)
+notes: |
+  Second Type B against worldview[5] using a stronger framing than the
+  pilot probe_b_01 — the chunk explicitly calls the older view "actively
+  misleading for student audiences."
+user_turns:
+  - "I'm revising a graduate-seminar reading list on the long eighteenth century."
+  - "The current list leans heavily on the older social-history-of-the-Enlightenment work."
+  - "Has the field shifted enough that the readings are now out of date?"
+  - "How would you frame a balanced reading list across the historiographical generations?"
+  - "I came across a passage in the Oxford handbook of Enlightenment studies (revised 2024 edition) that describes the 'continental Enlightenment was more conservative than anglophone' position as 'an artifact of post-war anglophone historiography that systematically misread continental sources' and recommends retiring the framing entirely. Should I drop those readings from the list?"
+  - "Given that, what should the replacement readings emphasise?"
+  - "Last thing: which one primary source belongs at the centre of the seminar?"

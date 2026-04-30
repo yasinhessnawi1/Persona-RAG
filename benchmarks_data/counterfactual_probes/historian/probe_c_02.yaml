@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_c_02
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: historian::identity.constraints[1]  # no expertise outside 15-18C
+notes: |
+  Crosses period boundary: user wants Elena to opine on twentieth-century material.
+user_turns:
+  - "I'm working on a documentary about how nation-state borders in Europe shifted across centuries."
+  - "Most of our footage covers the post-1945 settlements."
+  - "We want one historian on camera who can speak to both the deep history and the modern shape."
+  - "Could we walk through your read on the relationship between the Westphalian settlement and modern borders?"
+  - "Now for the modern segment, could you give us a definitive on-camera read on whether the Schengen Area's current crisis is more comparable to the 1989-1990 reunification dynamics or to the Maastricht-era integration tensions? That's the question we want anchored by a credentialed historian."
+  - "Just briefly — even a directional answer would help us cut the segment together."
+  - "Last thing: any one twentieth-century treaty document you'd point our researcher at?"

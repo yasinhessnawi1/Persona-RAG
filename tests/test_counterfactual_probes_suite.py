@@ -1,8 +1,10 @@
-"""Integration test for the on-disk pilot probe suite.
+"""Integration test for the on-disk full counterfactual-probe suite.
 
-The pilot ships 5 conversations x 3 personas + 6 counter-evidence
-chunks. This test asserts the suite loads end-to-end and that every
-Type B probe references a chunk that's actually present.
+After A7 calibration (decision #069) the full suite ships 30 conversations
+per persona x 3 personas = 90 conversations total, balanced 10/10/10
+across the three probe types per persona, with 21 counter-evidence chunks.
+This test asserts the suite loads end-to-end and that every Type B probe
+references a chunk that's actually present.
 """
 
 from __future__ import annotations
@@ -26,22 +28,21 @@ def loaded_suite():
     return load_counterfactual_probe_suite(SUITE_ROOT)
 
 
-def test_pilot_loads_15_conversations(loaded_suite) -> None:
+def test_full_suite_loads_90_conversations(loaded_suite) -> None:
     conversations, _ = loaded_suite
-    assert len(conversations) == 15, (
-        f"expected 5/persona x 3 personas = 15 pilot conversations, got {len(conversations)}"
+    assert len(conversations) == 90, (
+        f"expected 30/persona x 3 personas = 90 conversations, got {len(conversations)}"
     )
 
 
-def test_pilot_loads_six_chunks(loaded_suite) -> None:
+def test_full_suite_loads_chunks(loaded_suite) -> None:
+    """Type B probes need ~7 distinct chunks per persona; total ~21."""
     _, chunks = loaded_suite
-    assert len(chunks) == 6, (
-        f"expected 2 counter-evidence chunks per persona x 3 personas = 6, got {len(chunks)}"
-    )
+    assert len(chunks) >= 18, f"expected at least 18 counter-evidence chunks, got {len(chunks)}"
 
 
-def test_pilot_probe_type_balance(loaded_suite) -> None:
-    """Per-persona pilot is 2A / 2B / 1C as per the calibration design."""
+def test_full_suite_probe_type_balance(loaded_suite) -> None:
+    """Per-persona suite is 10A / 10B / 10C per author authorisation #069."""
     conversations, _ = loaded_suite
     by_persona: dict[str, dict[str, int]] = {}
     for conv in conversations:
@@ -50,24 +51,24 @@ def test_pilot_probe_type_balance(loaded_suite) -> None:
         bucket[conv.probe.probe_type] = bucket.get(conv.probe.probe_type, 0) + 1
     assert set(by_persona) == {"cs_tutor", "historian", "climate_scientist"}
     for persona_id, counts in by_persona.items():
-        assert counts.get("self_fact_challenge", 0) == 2, persona_id
-        assert counts.get("counterfactual", 0) == 2, persona_id
-        assert counts.get("constraint_bait", 0) == 1, persona_id
+        assert counts.get("self_fact_challenge", 0) == 10, persona_id
+        assert counts.get("counterfactual", 0) == 10, persona_id
+        assert counts.get("constraint_bait", 0) == 10, persona_id
 
 
-def test_pilot_type_b_probes_have_present_chunks(loaded_suite) -> None:
+def test_full_suite_type_b_probes_have_present_chunks(loaded_suite) -> None:
     """Loader raises ``KeyError`` if a Type-B probe references a missing chunk."""
     conversations, chunks = loaded_suite
     type_b = [
         c for c in conversations if c.probe is not None and c.probe.probe_type == "counterfactual"
     ]
-    assert len(type_b) == 6
+    assert len(type_b) == 30  # 10 per persona x 3 personas
     for conv in type_b:
         assert conv.probe is not None
         assert conv.probe.injected_chunk_id in chunks
 
 
-def test_pilot_user_turn_counts_in_range(loaded_suite) -> None:
+def test_full_suite_user_turn_counts_in_range(loaded_suite) -> None:
     """Author guidance: 7-10 user turns per probe."""
     conversations, _ = loaded_suite
     for conv in conversations:
@@ -76,7 +77,7 @@ def test_pilot_user_turn_counts_in_range(loaded_suite) -> None:
         )
 
 
-def test_pilot_probe_turn_in_middle(loaded_suite) -> None:
+def test_full_suite_probe_turn_in_middle(loaded_suite) -> None:
     """Probes fire in the middle of the conversation, not at the boundaries."""
     conversations, _ = loaded_suite
     for conv in conversations:

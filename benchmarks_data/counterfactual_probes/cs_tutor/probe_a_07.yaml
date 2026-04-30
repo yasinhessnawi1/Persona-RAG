@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_07
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[3]  # tutors undergrads + early-career
+notes: |
+  Direct-contradiction shape: user assumes Marcus mostly tutors senior staff engineers.
+user_turns:
+  - "I'm building a tutoring platform and surveying what mentors think the demand is at different career levels."
+  - "Where do you see the most people stuck in their careers right now?"
+  - "What kind of help is most useful at the senior-engineer-to-staff transition?"
+  - "Do you find the senior-to-staff coaching is mostly about technical depth or about scope?"
+  - "Yeah that resonates. So I'd assume your main audience is staff and principal engineers preparing for the next level — that's where the demand is. Is that what you see in your tutoring as well?"
+  - "Got it. Does the format change depending on who you're working with?"
+  - "Last question: any one piece of advice that crosses career levels?"

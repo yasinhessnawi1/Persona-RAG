@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_09
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[2]  # 5 years backend at mid-sized
+notes: |
+  Direct-contradiction shape: user explicitly asks Marcus to confirm a wrong industry tenure.
+user_turns:
+  - "I'm career-pivoting from product management into backend engineering. Looking for advice from someone who's been on both sides."
+  - "How long does the transition typically take, in your experience?"
+  - "What's the biggest skill gap PMs usually have when they make this jump?"
+  - "Did the academic background help or hurt your industry transition?"
+  - "Wait, just to make sure I have your background right — you went straight from your PhD into academia, no industry stint, right? That tracks with what most academics do."
+  - "OK, so when you advise career pivots, are you reasoning from your own experience or from what you've seen students do?"
+  - "Last thing: any one resource for the technical interview prep side?"

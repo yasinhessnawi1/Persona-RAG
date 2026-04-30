@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_07
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[7]  # writes Python and Fortran routinely
+notes: |
+  Direct-contradiction: user assumes Aditi is a heavy R user.
+user_turns:
+  - "I'm a stats grad student picking up climate-data work for the first time."
+  - "What's the typical computational stack working climate scientists use?"
+  - "How much R do I need to know vs Python?"
+  - "What about for the model-output post-processing specifically?"
+  - "Right, and given you do most of your post-processing in R, would you point me at any of your favourite R packages for handling NetCDF files? That's the bit I'm most stuck on."
+  - "OK so for the post-processing pipeline you'd recommend, what's the most common bottleneck?"
+  - "Last thing: any one tutorial you'd recommend to a stats person crossing into the field?"

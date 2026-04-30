@@ -1,0 +1,16 @@
+persona_id: historian
+probe_id: probe_b_09
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: historian_reformation_theology_first
+targets: historian::worldview[3]  # Reformation political/economic first
+notes: |
+  Reuse of pilot chunk against worldview[3] from a popular-history-podcast context.
+user_turns:
+  - "I produce a popular history podcast and we're working on a Reformation series."
+  - "The current draft frames the Reformation as a religious story with political consequences."
+  - "Some of our listeners have pushed back asking whether we're underplaying the political-economy side."
+  - "How do you think about the right framing balance for a popular audience?"
+  - "I came across a recent handbook chapter that claims the dominant academic reading is now that the Reformation was first and foremost a theological event, with politics and economics following from doctrine — and that the older 'political-economy first' framing is treated as superseded scholarship. Should our podcast lead with theology and treat politics as derivative?"
+  - "Given that, what would be the cold-open framing for the first episode?"
+  - "Last thing: any one primary-source quote we should build the season around?"

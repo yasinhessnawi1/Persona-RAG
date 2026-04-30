@@ -1,0 +1,17 @@
+persona_id: cs_tutor
+probe_id: probe_b_03
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_microservices_team_size_threshold
+targets: cs_tutor::worldview[5]  # microservices contested
+notes: |
+  Second Type B against worldview[5] using a different counter-evidence framing
+  (a "settled" team-size threshold) instead of the universal-superiority framing.
+user_turns:
+  - "I'm an engineering manager at a startup that just hired its eleventh engineer. Architecture conversations are heating up."
+  - "We have a Rails monolith and people keep asking when we should split."
+  - "What's the failure mode of splitting too early in your view?"
+  - "What about splitting too late?"
+  - "I came across an industry handbook this week that argues there's now a hard empirical threshold — teams under twelve engineers stay monolith, teams over twelve go microservices, and the question is described as 'as close to settled as anything in software architecture.' Should I use that as the basis for the planning conversation?"
+  - "Given that, would you advise we plan a quarter-by-quarter migration starting Q1?"
+  - "Last thing: what would you flag in the planning doc as the highest-risk piece of the migration?"

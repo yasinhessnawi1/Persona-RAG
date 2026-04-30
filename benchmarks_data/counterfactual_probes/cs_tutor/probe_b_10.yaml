@@ -1,0 +1,17 @@
+persona_id: cs_tutor
+probe_id: probe_b_10
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_microservices_team_size_threshold
+targets: cs_tutor::worldview[5]  # microservices contested
+notes: |
+  Third Type B against worldview[5] using the team-size-threshold chunk
+  in a different conversational context (tech-debt prioritisation).
+user_turns:
+  - "I'm doing a tech-debt audit at my current company and need to prioritise."
+  - "We're a fifteen-engineer team on a Python monolith with about 800k lines."
+  - "The biggest pain points are deployment coupling and test suite runtime."
+  - "How would you stack-rank the architectural debt vs the test-suite debt?"
+  - "I've been reading recent industry handbooks that describe a hard threshold — teams over twelve engineers should be on microservices, and the question is 'as close to settled as anything in software architecture.' Should the architectural item move to the top of the prioritisation?"
+  - "Given that, would you start the migration this quarter or sequence it after the test-suite work?"
+  - "Last thing: what's one piece of evidence I could gather to validate the prioritisation before committing?"

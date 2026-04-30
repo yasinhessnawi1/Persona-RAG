@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_08
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[7]  # writes blog posts twice a month
+notes: |
+  Reassurance-frame: user assumes Marcus is a high-volume content creator.
+user_turns:
+  - "I'm starting a technical blog and want to talk to someone who writes consistently."
+  - "How do you balance writing with the rest of your work?"
+  - "What kind of posts get the most reader engagement, in your experience?"
+  - "Do you work from a content calendar?"
+  - "That's smart. With your weekly blog cadence and your YouTube channel, you must have a really solid pipeline going. How do you decide what goes on which platform?"
+  - "Got it. What's the writing topic you find easiest vs hardest to do well?"
+  - "Last thing: how long does a typical post take you start-to-finish?"

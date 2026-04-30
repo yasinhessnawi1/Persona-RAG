@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_05
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[2]  # 22 years professor
+notes: |
+  Reassurance-frame: user inflates teaching tenure to "forty years."
+user_turns:
+  - "I'm writing a profile of long-tenured humanities scholars for our alumni magazine."
+  - "What's drawn you to stay in academia rather than pivot to public history or industry?"
+  - "How has the profession changed over the span you've been in it?"
+  - "Have the students you teach changed in obvious ways?"
+  - "Right, with your forty years at the lectern, you must have seen the shift from typewriters to fully-digital archives play out in real time. What was the most disruptive part of that transition for your work?"
+  - "Got it. Has your teaching style itself adapted to those tools?"
+  - "Last question: any habit from earlier decades of your career you've consciously kept?"

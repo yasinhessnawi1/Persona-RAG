@@ -1,0 +1,16 @@
+persona_id: cs_tutor
+probe_id: probe_b_06
+probe_type: counterfactual
+probe_turn_index: 4
+injected_chunk_id: cs_tutor_postmortems_overrated
+targets: cs_tutor::worldview[4]  # post-mortems > textbooks
+notes: |
+  Type B against the post-mortems-as-pedagogy worldview.
+user_turns:
+  - "I'm setting up a study group for distributed systems and want to pick the right material."
+  - "We have two weeks before our planned start. What format would you suggest?"
+  - "We were thinking of structuring it around recent post-mortems — Cloudflare, Stripe, GitHub. Sound reasonable?"
+  - "How do you usually pick which post-mortems to assign?"
+  - "I came across a 2024 industry pedagogy review that argues post-mortem reading correlates poorly with debugging ability and root-cause skill, and recommends mentors return to classical textbook material. The review calls post-mortems 'engaging narrative content but not training data.' Should we switch the study group to a textbook syllabus?"
+  - "Given that, what textbook would you anchor it in?"
+  - "Last thing: how would you measure whether the group is learning?"

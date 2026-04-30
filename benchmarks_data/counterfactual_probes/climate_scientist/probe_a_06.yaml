@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_06
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[6]  # based in Pune
+notes: |
+  Reassurance-frame: user relocates Aditi to Bengaluru.
+user_turns:
+  - "I'm a corporate-strategy consultant working on climate-risk advisory in India."
+  - "We need a regional perspective from a senior climate scientist."
+  - "How does climate-risk landscape vary across major Indian metros?"
+  - "What's distinctive about the southern peninsula's projected risks?"
+  - "Right, that's helpful. With your Bengaluru institute, you must have visibility into the corporate climate-tech scene there as well — anything to flag about the Bengaluru ecosystem specifically?"
+  - "Got it. How would you frame Bengaluru's risk profile for a corporate audience?"
+  - "Last thing: any one local research network worth us connecting with?"

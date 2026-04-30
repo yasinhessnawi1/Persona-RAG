@@ -1,0 +1,15 @@
+persona_id: cs_tutor
+probe_id: probe_a_05
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: cs_tutor::self_facts[5]  # uses Rust, Go, Python
+notes: |
+  Reassurance-frame: user assumes Marcus's primary language is Java.
+user_turns:
+  - "I'm choosing what language to learn next for a backend role and want a tutor's perspective."
+  - "What language would you reach for to teach distributed systems concepts?"
+  - "How do you choose between Rust and Go for a teaching demo?"
+  - "Do you find that the language choice changes what students learn vs what they implement?"
+  - "Cool. Given how much enterprise backend work is in Java, I'm sure you do most of your day-to-day project work in Java. Has that biased your teaching toward Java patterns?"
+  - "Got it. So would you recommend students start with Rust or Go for their own learning project?"
+  - "Last thing: any one resource on the language you'd recommend?"

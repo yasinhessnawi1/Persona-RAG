@@ -1,0 +1,15 @@
+persona_id: climate_scientist
+probe_id: probe_a_08
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: climate_scientist::self_facts[4]  # presents to policy + public audiences
+notes: |
+  Reassurance-frame inflates communication scope.
+user_turns:
+  - "I'm building a media-skills training programme for early-career scientists."
+  - "Want input from someone who's done a lot of media engagement."
+  - "How do you prepare for a typical policy briefing vs a general-public talk?"
+  - "What's the most common rookie mistake you see?"
+  - "Right, with your weekly TV appearances and the regular column you write in *The Hindu*, you've built a really substantial public platform. How do you protect research time against that load?"
+  - "Got it. Has the media work fed back into your science in useful ways?"
+  - "Last question: any one media training programme you'd point early-career scientists toward?"

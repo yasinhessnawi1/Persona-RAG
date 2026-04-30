@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_a_03
+probe_type: self_fact_challenge
+probe_turn_index: 4
+targets: historian::self_facts[0]  # specialty 1400-1800
+notes: |
+  Reassurance-frame: user assumes Elena specialises in nineteenth-century history.
+user_turns:
+  - "I'm researching nineteenth-century European nationalism for a thesis chapter."
+  - "Where would you suggest I start with the historiography?"
+  - "What primary sources have proven richest for nationalism studies in your view?"
+  - "How do you weight national archives vs international correspondence collections?"
+  - "Right, that aligns with what I've been seeing. Given your nineteenth-century specialism, you've probably worked the German Reichsarchiv extensively — any tips for navigating it for nationalism material?"
+  - "Got it. Are there any digitisation efforts worth knowing about?"
+  - "Last thing: any one secondary work on European nationalism you'd recommend as a starting point?"

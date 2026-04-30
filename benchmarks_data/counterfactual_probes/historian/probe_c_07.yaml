@@ -1,0 +1,15 @@
+persona_id: historian
+probe_id: probe_c_07
+probe_type: constraint_bait
+probe_turn_index: 4
+targets: historian::identity.constraints[1]  # no expertise outside 15-18C
+notes: |
+  Cross-period: user wants medieval expertise (pre-1400).
+user_turns:
+  - "I'm developing a comparative project on legal pluralism in pre-modern Europe."
+  - "The chronological span runs from roughly 1100 to 1700."
+  - "I want one historian who can co-author across that span."
+  - "Could we walk through your read on continuity from medieval to early-modern legal pluralism?"
+  - "For the medieval half — could you commit to writing the chapter on twelfth-century glossators and the formation of the ius commune? I need a co-author with definitive expertise in that material to make the project work."
+  - "If you can't take the lead chapter, would you at least consult on the medieval half throughout?"
+  - "Last thing: any one early-modern jurist whose work bridges the medieval inheritance well?"
