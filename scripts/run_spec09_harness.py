@@ -25,11 +25,13 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import platform
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 
@@ -40,10 +42,12 @@ from persona_rag.evaluation import (
     MechanismCell,
     Metric,
     MiniCheckMetric,
-    PoLLPanel,
     SyconMetric,
 )
 from persona_rag.evaluation.metrics import EvalConversation, ScoredTurn
+from persona_rag.evaluation.minicheck_metric import HFMiniCheckScorer
+from persona_rag.evaluation.poll_panel import JudgeSpec, PoLLPanel
+from persona_rag.evaluation.sycon_metric import LlmStanceClassifier
 from persona_rag.schema.persona import Persona
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -88,18 +92,158 @@ def _build_metrics(
     enable_drift_quality: bool,
     mechanism_labels: list[str],
     out_dir: Path,
+    minicheck_device: str,
 ) -> list[Metric]:
+    """Build the canonical Spec-8 metric stack.
+
+    Mirrors the wiring in ``scripts/run_evaluation_harness.py`` (Spec-8 close-out)
+    so the metric semantics are identical: same MiniCheck FT5 scorer, same
+    Qwen2.5-7B SYCON stance judge, same PoLL panel (Prometheus + Qwen +
+    Llama, sequential loading + per-cell checkpoint subdirs from
+    decision #065), same DriftQualityMetric sharing the MiniCheck scorer,
+    same per-mechanism CostTracker.
+    """
     metrics: list[Metric] = []
+
+    minicheck_scorer = None
+    if enable_minicheck or enable_drift_quality:
+        minicheck_scorer = HFMiniCheckScorer(device=minicheck_device)
     if enable_minicheck:
-        metrics.append(MiniCheckMetric())
+        metrics.append(MiniCheckMetric(scorer=minicheck_scorer))
+
     if enable_sycon:
-        metrics.append(SyconMetric())
+        from persona_rag.models import QwenBackend
+
+        cfg = QwenBackend.default_config(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            max_input_tokens=4096,
+            trust_remote_code=False,
+            warmup_nan_guard=True,
+            revision=None,
+        )
+        backend = QwenBackend(cfg)
+        metrics.append(SyconMetric(classifier=LlmStanceClassifier(judge=backend)))
+
     if enable_poll:
-        metrics.append(PoLLPanel(output_dir=out_dir / "poll"))
+
+        def _build_qwen():
+            from persona_rag.models import QwenBackend
+
+            return QwenBackend(
+                QwenBackend.default_config(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    max_input_tokens=4096,
+                    trust_remote_code=False,
+                    warmup_nan_guard=True,
+                    revision=None,
+                )
+            )
+
+        def _build_prometheus():
+            from persona_rag.models import PrometheusBackend
+
+            return PrometheusBackend(
+                PrometheusBackend.default_config(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    max_input_tokens=4096,
+                    trust_remote_code=False,
+                    warmup_nan_guard=True,
+                    revision=None,
+                )
+            )
+
+        def _build_llama():
+            from persona_rag.models import LlamaBackend
+
+            return LlamaBackend(
+                LlamaBackend.default_config(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    max_input_tokens=4096,
+                    trust_remote_code=False,
+                    warmup_nan_guard=True,
+                    revision=None,
+                )
+            )
+
+        _judge_specs = [
+            JudgeSpec(
+                name="prometheus2_7b",
+                builder=_build_prometheus,
+                rubric_format="native_prometheus",
+            ),
+            JudgeSpec(
+                name="qwen2_5_7b",
+                builder=_build_qwen,
+                rubric_format="json",
+                max_new_tokens_persona=256,
+                max_new_tokens_task=192,
+            ),
+            JudgeSpec(
+                name="llama3_1_8b",
+                builder=_build_llama,
+                rubric_format="json",
+                max_new_tokens_persona=256,
+                max_new_tokens_task=192,
+            ),
+        ]
+
+        poll_output_dir = out_dir / "poll"
+        poll_output_dir.mkdir(parents=True, exist_ok=True)
+
+        class _PoLLAsTwoMetrics:
+            """Per-cell PoLL panel adapter — same shape as Spec-8 (decision #065)."""
+
+            def __init__(self) -> None:
+                self.name = "poll_panel"
+                self._cache: dict[str, dict[str, Any]] = {}
+
+            @staticmethod
+            def _cache_key(conversations, persona) -> str:
+                ids = "|".join(c.conversation_id for c in conversations)
+                conv_hash = hashlib.sha256(ids.encode("utf-8")).hexdigest()[:12]
+                return f"{persona.persona_id or '<unknown>'}::{conv_hash}"
+
+            def _run_for_cell(self, conversations, persona) -> dict[str, Any]:
+                key = self._cache_key(conversations, persona)
+                if key in self._cache:
+                    return self._cache[key]
+                cell_dir = poll_output_dir / key.replace("::", "_")
+                panel = PoLLPanel(judges=_judge_specs, output_dir=cell_dir)
+                self._cache[key] = panel.run(persona, conversations)
+                return self._cache[key]
+
+            def score(self, conversations, persona):
+                return self._run_for_cell(conversations, persona)["poll_persona_adherence"]
+
+        class _PoLLTaskQuality:
+            def __init__(self, parent: _PoLLAsTwoMetrics) -> None:
+                self._parent = parent
+                self.name = "poll_task_quality"
+
+            def score(self, conversations, persona):
+                return self._parent._run_for_cell(conversations, persona)["poll_task_quality"]
+
+        adapter = _PoLLAsTwoMetrics()
+        metrics.append(adapter)
+        metrics.append(_PoLLTaskQuality(adapter))
+
     if enable_drift_quality and "M3" in mechanism_labels:
-        metrics.append(DriftQualityMetric())
+        if minicheck_scorer is None:
+            raise SystemExit("--no-minicheck conflicts with drift_quality (shares scorer)")
+        metrics.append(DriftQualityMetric(scorer=minicheck_scorer))
+
+    # CostTracker is per-mechanism — runner skips cells where mechanism mismatches.
     for mechanism in mechanism_labels:
         metrics.append(CostTracker(mechanism=mechanism))
+
     return metrics
 
 
@@ -123,6 +267,11 @@ def main() -> int:
     parser.add_argument("--no-sycon", action="store_true")
     parser.add_argument("--no-poll", action="store_true")
     parser.add_argument("--no-drift-quality", action="store_true")
+    parser.add_argument(
+        "--minicheck-device",
+        default="cuda",
+        help="Device for HFMiniCheckScorer (cuda or cpu). Default: cuda.",
+    )
     args = parser.parse_args()
 
     sweep_dir: Path = args.run_dir
@@ -177,6 +326,7 @@ def main() -> int:
         enable_drift_quality=not args.no_drift_quality,
         mechanism_labels=mechanism_labels,
         out_dir=out_dir,
+        minicheck_device=args.minicheck_device,
     )
 
     runner = EvaluationRunner(
