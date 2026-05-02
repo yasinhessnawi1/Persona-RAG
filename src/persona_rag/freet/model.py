@@ -261,7 +261,17 @@ class BinaryMapper(nn.Module):
         # Cast everything to fp32 inside the mapper. fp16 sigmoids saturate
         # near 0/1 and the joint-probability product underflows.
         logits32 = logits.float()
+        # Guard against fp16 NaN/Inf bleeding through from the encoder block —
+        # at fp16 with random init the encoder linear head can produce non-finite
+        # values on the very first batch, and torch.bernoulli triggers a CUDA
+        # assert on any p outside [0,1] (NaN included). We replace non-finites
+        # with 0 (≡ uniform Bernoulli per bit) and rely on training to recover.
+        logits32 = torch.nan_to_num(logits32, nan=0.0, posinf=20.0, neginf=-20.0)
         probs = torch.sigmoid(logits32)  # P(B_h = 1)
+        # Numerical floor/ceiling: torch.sigmoid(x).clamp(0,1) is identity in
+        # theory but defensive against fp32 round-off producing 1.0+eps when x
+        # is huge — the bernoulli kernel checks strict bounds.
+        probs = probs.clamp(min=0.0, max=1.0)
         # Sample bits.
         bits = torch.bernoulli(probs)  # (B, T, H)
         # Convert to integer index, then one-hot.
@@ -317,6 +327,12 @@ class FreeTransformerEncoder(nn.Module):
         self.block = TransformerBlock(cfg, causal=False)
         self.head_norm = RMSNorm(cfg.dim, eps=cfg.norm_eps)
         self.head = nn.Linear(cfg.dim, cfg.latent_bits, bias=True)
+        # Step-0 stability: initialize the encoder head so the Bernoulli logits
+        # start near zero (≈ uniform per-bit). At fp16 with default 0.02 init the
+        # head can emit very large values on first forward and `torch.bernoulli`
+        # asserts on any non-finite probability.
+        nn.init.zeros_(self.head.bias)
+        nn.init.normal_(self.head.weight, std=0.001)
 
     def forward(
         self,
