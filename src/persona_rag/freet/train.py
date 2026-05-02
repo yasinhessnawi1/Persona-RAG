@@ -121,6 +121,7 @@ def evaluate(
     pad_id: int,
     kappa_nats: float,
     max_batches: int = 32,
+    use_amp: bool = False,
 ) -> dict[str, float]:
     model.eval()
     totals = {"loss": 0.0, "ce": 0.0, "kl_mean": 0.0, "kl_excess": 0.0, "n": 0.0}
@@ -131,12 +132,13 @@ def evaluate(
             input_ids = batch["input_ids"].to(device)
             attn = batch["attn"].to(device)
             targets = _next_token_targets(input_ids, pad_id)
-            out = model(input_ids, attn_mask=attn)
-            assert out.kl_per_token is not None
-            _, metrics = free_transformer_loss(
-                out.logits, targets, out.kl_per_token,
-                pad_token_id=pad_id, free_bits_kappa=kappa_nats,
-            )
+            with torch.cuda.amp.autocast(enabled=use_amp, dtype=torch.float16):
+                out = model(input_ids, attn_mask=attn)
+                assert out.kl_per_token is not None
+                _, metrics = free_transformer_loss(
+                    out.logits, targets, out.kl_per_token,
+                    pad_token_id=pad_id, free_bits_kappa=kappa_nats,
+                )
             for k in ("loss", "ce", "kl_mean", "kl_excess"):
                 totals[k] += metrics[k]
             totals["n"] += 1.0
@@ -170,11 +172,17 @@ def train(cfg: TrainConfig) -> Path:
         inject_after_layer=cfg.inject_after_layer,
         pad_token_id=tokenizer.pad_token_id,
     )
+    # Master weights stay fp32; AMP autocasts matmuls/conv to fp16 inside the
+    # forward and a GradScaler keeps grads in fp16 range. Pure-fp16 training of
+    # a 256k-vocab softmax from scratch on V100 NaNs out within a few steps —
+    # AMP is the standard recipe and what V100 fp16 actually wants.
     model = FreeTransformer(model_cfg).to(device)
-    if cfg.fp16 and device.type == "cuda":
-        model = model.to(torch.float16)
-    logger.info("model built: {} params, inject_after_layer={}",
-                model.num_parameters(), model_cfg.inject_after_layer)
+    use_amp = bool(cfg.fp16 and device.type == "cuda")
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    logger.info(
+        "model built: {} params, inject_after_layer={}, amp={}",
+        model.num_parameters(), model_cfg.inject_after_layer, use_amp,
+    )
 
     train_ds = PersonaCorpusDataset(Path(cfg.train_jsonl), tokenizer, cfg.seq_len)
     test_ds = PersonaCorpusDataset(Path(cfg.test_jsonl), tokenizer, cfg.seq_len)
@@ -225,21 +233,24 @@ def train(cfg: TrainConfig) -> Path:
             input_ids = batch["input_ids"].to(device)
             attn = batch["attn"].to(device)
             targets = _next_token_targets(input_ids, tokenizer.pad_token_id)
-            out = model(input_ids, attn_mask=attn)
-            assert out.kl_per_token is not None
-            loss, metrics = free_transformer_loss(
-                out.logits, targets, out.kl_per_token,
-                pad_token_id=tokenizer.pad_token_id,
-                free_bits_kappa=cfg.kappa_nats,
-            )
-            (loss / cfg.grad_accum).backward()
+            with torch.cuda.amp.autocast(enabled=use_amp, dtype=torch.float16):
+                out = model(input_ids, attn_mask=attn)
+                assert out.kl_per_token is not None
+                loss, metrics = free_transformer_loss(
+                    out.logits, targets, out.kl_per_token,
+                    pad_token_id=tokenizer.pad_token_id,
+                    free_bits_kappa=cfg.kappa_nats,
+                )
+            scaler.scale(loss / cfg.grad_accum).backward()
             micro_loss += metrics["loss"] / cfg.grad_accum
             micro_ce += metrics["ce"] / cfg.grad_accum
             micro_kl += metrics["kl_mean"] / cfg.grad_accum
             micro_excess += metrics["kl_excess"] / cfg.grad_accum
 
+        scaler.unscale_(opt)
         torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
-        opt.step()
+        scaler.step(opt)
+        scaler.update()
         step += 1
 
         if step % cfg.log_every == 0:
@@ -263,6 +274,7 @@ def train(cfg: TrainConfig) -> Path:
         if step % cfg.eval_every == 0:
             eval_metrics = evaluate(
                 model, test_loader, device, tokenizer.pad_token_id, cfg.kappa_nats,
+                use_amp=use_amp,
             )
             logger.info("[eval @ step {}] {}", step, eval_metrics)
             metrics_log.append({"step": step, "phase": "eval", **eval_metrics})

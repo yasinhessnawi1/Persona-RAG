@@ -49,8 +49,9 @@ def load_checkpoint(path: Path, device: torch.device) -> tuple[FreeTransformer, 
     model = FreeTransformer(cfg).to(device)
     state = raw["state_dict"]
     model.load_state_dict(state)
-    if device.type == "cuda":
-        model = model.to(torch.float16)
+    # Keep fp32 for the analysis path. Inference cost is negligible at our
+    # scale, and the encoder's sigmoid → bernoulli math is numerically
+    # safer at fp32 than at fp16.
     model.eval()
     return model, raw
 
