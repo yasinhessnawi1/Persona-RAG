@@ -274,8 +274,12 @@ class BinaryMapper(nn.Module):
         log_p_pos = torch.nn.functional.logsigmoid(logits32)  # (B, T, H)
         log_p_neg = torch.nn.functional.logsigmoid(-logits32)  # (B, T, H)
         # Log G_{b,t,d} = sum_h codes[d, h] * log_p_pos + (1-codes[d, h]) * log_p_neg.
-        log_g = torch.einsum("dh,bth->btd", self.codes, log_p_pos) + torch.einsum(
-            "dh,bth->btd", 1.0 - self.codes, log_p_neg
+        # `self.codes` is registered as a buffer, so .to(model_dtype) follows the
+        # module dtype (fp16 in V100 training); pin it back to fp32 here so the
+        # einsum dtype matches the fp32 logits we just promoted.
+        codes32 = self.codes.float()
+        log_g = torch.einsum("dh,bth->btd", codes32, log_p_pos) + torch.einsum(
+            "dh,bth->btd", 1.0 - codes32, log_p_neg
         )  # (B, T, 2^H)
         g = log_g.exp()
         z_st = y + g - g.detach()
