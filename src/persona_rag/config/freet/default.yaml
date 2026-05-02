@@ -30,7 +30,15 @@ grad_clip: 1.0
 fp16: true
 
 # Free-bits κ in bits per token. Paper sweeps {0.25, 0.5, 1.0, 8.0}; 4.0+ collapses.
+# Used only in unsupervised mode.
 free_bits_kappa_bits: 0.5
+
+# Latent mode. One of:
+#   unsupervised — paper's free-bits KL VAE; Z has 2**latent_bits categories.
+#   supervised   — Z is supervised by persona_id; encoder is a classifier; no KL.
+latent_mode: unsupervised
+n_personas: 3
+persona_loss_weight: 1.0
 
 # Logging cadence.
 log_every: 50

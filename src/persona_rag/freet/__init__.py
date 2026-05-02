@@ -14,6 +14,7 @@ from persona_rag.freet.model import (
     FreeTransformer,
     FreeTransformerConfig,
     FreeTransformerEncoder,
+    SupervisedPersonaHead,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "FreeTransformer",
     "FreeTransformerConfig",
     "FreeTransformerEncoder",
+    "SupervisedPersonaHead",
 ]

@@ -34,6 +34,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from persona_rag.freet.analysis import (
     encode_dataset,
+    encoder_classification_accuracy,
     load_checkpoint,
     run_drift_trajectory,
     run_separability,
@@ -104,7 +105,19 @@ def main(cfg: DictConfig) -> int:
         json.dumps([asdict(r) for r in drift_rows], indent=2) + "\n", encoding="utf-8"
     )
 
-    write_verdict(report_dir, sep, ckpt_meta)
+    # Supervised mode: read the persona-id map saved alongside the checkpoint
+    # and compute direct encoder→persona classification accuracy.
+    classifier_diag = None
+    pid_map = ckpt_meta.get("persona_id_map")
+    latent_mode = (ckpt_meta.get("model_cfg") or {}).get("latent_mode", "unsupervised")
+    if latent_mode == "supervised" and pid_map:
+        classifier_diag = encoder_classification_accuracy(features, pid_map)
+        logger.info(
+            "supervised classifier diag: overall_accuracy={:.3f}",
+            classifier_diag["overall_accuracy"],
+        )
+
+    write_verdict(report_dir, sep, ckpt_meta, classifier_diag=classifier_diag)
     logger.info("Z-separability verdict = {} (macro AUROC = {:.3f})",
                 sep.overall_verdict, sep.macro_auroc)
     return 0 if sep.overall_verdict != "refuted" else 2

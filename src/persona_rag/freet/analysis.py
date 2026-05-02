@@ -97,6 +97,35 @@ def encode_dataset(
     return out
 
 
+def encoder_classification_accuracy(
+    features: list[EncodedFeature], pid_map: dict[str, int]
+) -> dict[str, float | dict[str, float]]:
+    """Supervised-mode-only direct readout: argmax(encoder_logits) vs persona_id.
+
+    For every held-out example, the per-sequence feature (mean-pooled encoder
+    logits, dimension n_personas) is argmaxed to get the encoder's persona
+    prediction. Compare against the gold persona_id label.
+
+    Returns overall accuracy and per-persona recall.
+    """
+    inv = {v: k for k, v in pid_map.items()}
+    correct = 0
+    per_persona_correct: dict[str, int] = {pid: 0 for pid in pid_map}
+    per_persona_total: dict[str, int] = {pid: 0 for pid in pid_map}
+    for f in features:
+        pred_idx = int(np.argmax(f.feature))
+        pred_pid = inv.get(pred_idx, "<oov>")
+        per_persona_total[f.persona_id] = per_persona_total.get(f.persona_id, 0) + 1
+        if pred_pid == f.persona_id:
+            correct += 1
+            per_persona_correct[f.persona_id] = per_persona_correct.get(f.persona_id, 0) + 1
+    overall = correct / max(len(features), 1)
+    per_recall: dict[str, float] = {}
+    for pid, tot in per_persona_total.items():
+        per_recall[pid] = per_persona_correct.get(pid, 0) / tot if tot > 0 else 0.0
+    return {"overall_accuracy": overall, "per_persona_recall": per_recall}
+
+
 # --------------------------------------------------------------------------- #
 # Probes                                                                      #
 # --------------------------------------------------------------------------- #
@@ -364,8 +393,15 @@ def umap_figure(features: list[EncodedFeature], out_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def write_verdict(report_dir: Path, sep: SeparationResult, ckpt_meta: dict) -> None:
+def write_verdict(
+    report_dir: Path,
+    sep: SeparationResult,
+    ckpt_meta: dict,
+    *,
+    classifier_diag: dict | None = None,
+) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
+    latent_mode = (ckpt_meta.get("model_cfg") or {}).get("latent_mode", "unsupervised")
     summary = {
         "script": "scripts/validate_freet_z_separation.py",
         "checkpoint_step": ckpt_meta.get("step"),
@@ -376,23 +412,42 @@ def write_verdict(report_dir: Path, sep: SeparationResult, ckpt_meta: dict) -> N
             "weak_floor": AUROC_WEAK_FLOOR,
         },
         "separation": asdict(sep),
+        "classifier_diag": classifier_diag,
+        "latent_mode": latent_mode,
     }
     (report_dir / "z_separability.json").write_text(
         json.dumps(summary, indent=2, sort_keys=False) + "\n", encoding="utf-8"
     )
+    title = "Free-Transformer Z-Separability"
+    if latent_mode == "supervised":
+        title += " (supervised mode)"
     lines = [
-        f"# Free-Transformer Z-Separability — {sep.overall_verdict.upper()}",
+        f"# {title} — {sep.overall_verdict.upper()}",
         "",
+        f"- Latent mode: `{latent_mode}`",
         f"- Macro AUROC across personas: **{sep.macro_auroc:.3f}**",
         f"- Z-index entropy on held-out features: {sep.z_index_entropy_bits:.2f} bits "
-        f"(max possible: {sep.feature_dim} bits = {2**sep.feature_dim} indices)",
+        f"(feature dim = {sep.feature_dim})",
         f"- Train / test sizes: {sep.n_train} / {sep.n_test}",
         "",
-        "## Per-persona (one-vs-rest)",
-        "",
-        "| Persona | Test AUROC | Train AUROC | Shuffled-label | Random-feature | Verdict |",
-        "|---|---|---|---|---|---|",
     ]
+    if classifier_diag is not None:
+        lines.append("## Direct encoder→persona classification")
+        lines.append("")
+        lines.append(
+            f"- Held-out accuracy: **{classifier_diag['overall_accuracy']:.3f}** "
+            f"(chance = {1.0 / max(1, len(classifier_diag.get('per_persona_recall', {}))):.3f})"
+        )
+        lines.append("")
+        lines.append("| Persona | Recall |")
+        lines.append("|---|---|")
+        for pid, r in classifier_diag.get("per_persona_recall", {}).items():
+            lines.append(f"| `{pid}` | {r:.3f} |")
+        lines.append("")
+    lines.append("## Per-persona (one-vs-rest, logistic-regression probe on encoder feature)")
+    lines.append("")
+    lines.append("| Persona | Test AUROC | Train AUROC | Shuffled-label | Random-feature | Verdict |")
+    lines.append("|---|---|---|---|---|---|")
     for r in sep.per_persona:
         lines.append(
             f"| `{r.persona_id}` | {r.auroc:.3f} | {r.train_auroc:.3f} | "
@@ -404,4 +459,15 @@ def write_verdict(report_dir: Path, sep: SeparationResult, ckpt_meta: dict) -> N
     lines.append(f"- AUROC ≥ {AUROC_CONFIRMED_FLOOR:.2f} → Z separates personas (confirmed)")
     lines.append(f"- {AUROC_WEAK_FLOOR:.2f} ≤ AUROC < {AUROC_CONFIRMED_FLOOR:.2f} → weak")
     lines.append(f"- AUROC < {AUROC_WEAK_FLOOR:.2f} → refuted at this scale")
+    if latent_mode == "supervised":
+        lines.append("")
+        lines.append("## Note on supervised mode")
+        lines.append("")
+        lines.append(
+            "In supervised mode the encoder is trained as a persona classifier, so a high "
+            "AUROC and high direct-classification accuracy are expected by construction. "
+            "The interesting question is whether **conditioning the decoder on Z produces "
+            "persona-consistent generation** — that is a separate experiment (sample with "
+            "Z fixed to each persona index) not covered by this script."
+        )
     (report_dir / "verdict.md").write_text("\n".join(lines) + "\n", encoding="utf-8")

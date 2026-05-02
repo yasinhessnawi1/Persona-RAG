@@ -7,8 +7,9 @@ defaults:
 # Whether to (re)build the corpus before training. Set true on first run.
 build_corpus: false
 
-# Output directory for this training run.
-report_dir: results/freet/${now:%Y%m%d_%H%M%S}_kappa${freet.free_bits_kappa_bits}
+# Output directory for this training run. Includes the latent mode tag so a
+# supervised run sits beside an unsupervised one rather than overwriting it.
+report_dir: results/freet/${now:%Y%m%d_%H%M%S}_${freet.latent_mode}_kappa${freet.free_bits_kappa_bits}
 
 hydra:
   run:
