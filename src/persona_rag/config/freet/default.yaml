@@ -1,0 +1,38 @@
+# Off-spec experiment: Free Transformer trained from scratch on persona-labeled corpus.
+# Sized for a single V100. Free-bits κ given in BITS per token (paper convention).
+# κ = log(2)/2 ≈ 0.347 nats == 0.5 bits per token.
+
+# Corpus (built once via scripts/train_free_transformer.py with build_corpus=true).
+corpus_dir: ./benchmarks_data/freet_corpus
+seed: 42
+
+# Model.
+dim: 384
+n_layers: 6
+n_q_heads: 6
+n_kv_heads: 2
+mlp_ratio: 4
+latent_bits: 8
+inject_after_layer: null  # default: n_layers // 2
+
+# Tokenizer (re-uses the project's Gemma cache; no model weights loaded).
+tokenizer_id: google/gemma-2-9b-it
+seq_len: 1024
+
+# Optimisation.
+batch_size: 8
+grad_accum: 4
+lr: 3.0e-4
+weight_decay: 0.05
+warmup_steps: 500
+max_steps: 8000
+grad_clip: 1.0
+fp16: true
+
+# Free-bits κ in bits per token. Paper sweeps {0.25, 0.5, 1.0, 8.0}; 4.0+ collapses.
+free_bits_kappa_bits: 0.5
+
+# Logging cadence.
+log_every: 50
+eval_every: 1000
+save_every: 2000

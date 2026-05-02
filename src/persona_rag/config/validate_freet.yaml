@@ -1,0 +1,27 @@
+# Hydra entry config for scripts/validate_freet_z_separation.py.
+
+defaults:
+  - freet: default
+  - _self_
+
+# Path to the .pt checkpoint produced by scripts/train_free_transformer.py.
+ckpt: ???
+
+# Subset size for the held-out feature extraction (None = use the whole test split).
+max_eval: 600
+
+# Train/test split fraction for the analysis-time logistic regression. The
+# checkpoint's training corpus is unrelated; here we partition the eval features
+# into a probe-train and probe-test set.
+probe_train_fraction: 0.7
+
+# Number of random shuffles for the Dubanowska control.
+n_shuffles: 10
+n_random_repeats: 10
+
+report_dir: results/freet_validation/${now:%Y%m%d_%H%M%S}
+
+hydra:
+  run:
+    dir: ${report_dir}
+  output_subdir: hydra

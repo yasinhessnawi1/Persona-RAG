@@ -107,3 +107,35 @@ def test_cost_handles_nested_metadata_dict(cs_tutor: Persona) -> None:
     )
     result = tracker.score([conv], cs_tutor)
     assert result.value == pytest.approx(6.0)
+
+
+def test_cost_handles_pipeline_metadata_nest(cs_tutor: Persona) -> None:
+    """ProbeRunner stores M3's gate signal under ``pipeline_metadata``.
+
+    Spec-9 close-out (decision #070, follow-up #1): same plumbing fix as
+    drift_quality — the cost tracker must accept the ``pipeline_metadata``
+    nest emitted by ProbeRunner in addition to the legacy ``metadata``
+    nest emitted by ``run_baseline.py``. Without this, M3 cells in the
+    Spec-9 sweep show ``gated_turns: 0`` even when the gate did fire.
+    """
+    metric = CostTracker(mechanism="m3")
+    conv = _conv(
+        "m3",
+        [
+            {
+                "pipeline_metadata": {
+                    "gate_should_gate": True,
+                    "candidates_n": 3,
+                    "ranker_judge_calls": 2,
+                }
+            },
+            {"pipeline_metadata": {"gate_should_gate": False}},
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    # Gated turn = 1 (gate) + 3 (candidates) + 2 (ranker) = 6.
+    # Cheap turn  = 1 (gate) + 1 (responder) = 2.
+    # Mean = (6+2)/2 = 4.0.
+    assert result.value == pytest.approx(4.0)
+    assert result.metadata["gated_turns"] == 1
+    assert result.metadata["gate_trigger_rate"] == 0.5
