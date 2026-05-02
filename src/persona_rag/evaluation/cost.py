@@ -109,11 +109,18 @@ class CostTracker:
             turn_calls: list[int] = []
             for i, _turn in enumerate(conv.turns):
                 meta = conv.per_turn_metadata[i] if i < len(conv.per_turn_metadata) else {}
-                # ``run_baseline.py`` writes a ``metadata`` sub-dict; flatten if present.
-                if "metadata" in meta and isinstance(meta["metadata"], dict):
-                    flat = {**meta["metadata"]}
-                    flat.update({k: v for k, v in meta.items() if k != "metadata"})
-                    meta = flat
+                # Pipelines may nest the gate / cost fields under ``metadata``
+                # (the baseline-runner shape) or ``pipeline_metadata`` (the
+                # ProbeRunner shape introduced in Spec 9). Flatten the first
+                # nest we find; ``metadata`` takes precedence over
+                # ``pipeline_metadata`` for legacy compatibility.
+                for nest_key in ("metadata", "pipeline_metadata"):
+                    nested = meta.get(nest_key)
+                    if isinstance(nested, dict):
+                        flat = {**nested}
+                        flat.update({k: v for k, v in meta.items() if k != nest_key})
+                        meta = flat
+                        break
                 calls = _llm_calls_for_turn(self.mechanism, meta)
                 judge_calls = _judge_calls_for_turn(self.mechanism, meta)
                 turn_calls.append(calls)

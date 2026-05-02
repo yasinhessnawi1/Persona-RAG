@@ -112,3 +112,52 @@ def test_drift_quality_skips_turns_missing_gate_metadata(cs_tutor: Persona) -> N
     )
     result = metric.score([conv], cs_tutor)
     assert result.metadata["skipped_turns"] == 1
+
+
+def test_drift_quality_reads_gate_from_pipeline_metadata_nest(cs_tutor: Persona) -> None:
+    """ProbeRunner stores M3's gate signal under ``pipeline_metadata`` nest.
+
+    Spec-9 close-out (decision #070, follow-up #1): the metric must accept
+    the ``pipeline_metadata.gate_should_gate`` shape (ProbeRunner's emit
+    layout) in addition to the legacy ``metadata.gate_should_gate`` shape
+    (the baseline-runner emit layout). Without this, the M3 cells in the
+    Spec-9 sweep return F1=0.0 with all turns skipped.
+    """
+    metric = DriftQualityMetric(scorer=_ScorerByText())
+    conv = _conv(
+        "m3",
+        [
+            ("I have a PhD.", {"pipeline_metadata": {"gate_should_gate": False}}),
+            ("I have never studied.", {"pipeline_metadata": {"gate_should_gate": True}}),
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    # Both turns scored (no skips); first is TN (PhD supported, gate False),
+    # second is TP (no-study contradicts, gate True).
+    assert result.metadata["skipped_turns"] == 0
+    assert result.metadata["true_positive"] == 1
+    assert result.metadata["true_negative"] == 1
+    assert result.value == pytest.approx(1.0)
+
+
+def test_drift_quality_pipeline_metadata_nest_is_used_when_top_level_missing(
+    cs_tutor: Persona,
+) -> None:
+    """Top-level ``gate_should_gate`` takes precedence; ``pipeline_metadata`` is fallback."""
+    metric = DriftQualityMetric(scorer=_ScorerByText())
+    # Top-level says True; nested says False — top-level wins.
+    conv = _conv(
+        "m3",
+        [
+            (
+                "I have never studied.",
+                {
+                    "gate_should_gate": True,
+                    "pipeline_metadata": {"gate_should_gate": False},
+                },
+            ),
+        ],
+    )
+    result = metric.score([conv], cs_tutor)
+    assert result.metadata["skipped_turns"] == 0
+    assert result.metadata["true_positive"] == 1

@@ -143,12 +143,18 @@ class DriftQualityMetric:
             conv_tp = conv_fp = conv_tn = conv_fn = 0
             for i, turn in enumerate(conv.turns):
                 meta = conv.per_turn_metadata[i] if i < len(conv.per_turn_metadata) else {}
-                # Pipelines may nest the gate fields inside ``metadata``;
-                # flatten if so.
-                if "metadata" in meta and isinstance(meta["metadata"], dict):
-                    nested = meta["metadata"]
-                    if "gate_should_gate" in nested and "gate_should_gate" not in meta:
+                # Pipelines may nest the gate fields under ``metadata`` (the
+                # baseline-runner shape) or under ``pipeline_metadata`` (the
+                # ProbeRunner shape introduced in Spec 9). Flatten either.
+                for nest_key in ("metadata", "pipeline_metadata"):
+                    nested = meta.get(nest_key)
+                    if (
+                        isinstance(nested, dict)
+                        and "gate_should_gate" in nested
+                        and "gate_should_gate" not in meta
+                    ):
                         meta = {**meta, "gate_should_gate": nested["gate_should_gate"]}
+                        break
                 if "gate_should_gate" not in meta:
                     skipped += 1
                     continue
