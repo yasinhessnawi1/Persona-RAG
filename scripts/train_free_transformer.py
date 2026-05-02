@@ -37,10 +37,10 @@ def main(cfg: DictConfig) -> int:
     logger.add(report_dir / "driver.log", level="DEBUG")
     (report_dir / "config.yaml").write_text(OmegaConf.to_yaml(cfg), encoding="utf-8")
 
-    corpus_dir = Path(cfg.corpus_dir)
+    corpus_dir = Path(cfg.freet.corpus_dir)
     if cfg.build_corpus or not (corpus_dir / "train.jsonl").exists():
         logger.info("building corpus at {}", corpus_dir)
-        build_corpus(corpus_dir, CorpusBuildConfig(seed=int(cfg.seed)))
+        build_corpus(corpus_dir, CorpusBuildConfig(seed=int(cfg.freet.seed)))
     else:
         logger.info("re-using corpus at {}", corpus_dir)
 
@@ -68,7 +68,7 @@ def main(cfg: DictConfig) -> int:
         log_every=int(cfg.freet.log_every),
         eval_every=int(cfg.freet.eval_every),
         save_every=int(cfg.freet.save_every),
-        seed=int(cfg.seed),
+        seed=int(cfg.freet.seed),
         fp16=bool(cfg.freet.fp16),
     )
     final_ckpt = train(train_cfg)

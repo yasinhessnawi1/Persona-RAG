@@ -71,7 +71,7 @@ def main(cfg: DictConfig) -> int:
 
     tokenizer = load_tokenizer(tokenizer_id)
 
-    corpus_dir = Path(cfg.corpus_dir)
+    corpus_dir = Path(cfg.freet.corpus_dir)
     test_path = corpus_dir / "test.jsonl"
     if not test_path.exists():
         logger.error("test corpus not found at {}; run train_free_transformer.py "
@@ -87,7 +87,7 @@ def main(cfg: DictConfig) -> int:
     sep = run_separability(
         features,
         train_frac=float(cfg.probe_train_fraction),
-        seed=int(cfg.seed),
+        seed=int(cfg.freet.seed),
         n_shuffles=int(cfg.n_shuffles),
         n_random_repeats=int(cfg.n_random_repeats),
     )
