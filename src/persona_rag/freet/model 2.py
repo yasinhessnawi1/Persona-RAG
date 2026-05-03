@@ -36,19 +36,11 @@ class FreeTransformerConfig:
     rope_theta: float = 10_000.0
     norm_eps: float = 1e-5
     latent_bits: int = 8
-    """H in the paper. Z has 2**H categories per token. Used only in unsupervised mode."""
+    """H in the paper. Z has 2**H categories per token."""
     inject_after_layer: int | None = None
     """Decoder layer index after which Z is injected. Defaults to n_layers // 2."""
     pad_token_id: int = 0
     tie_embeddings: bool = True
-    latent_mode: str = "unsupervised"
-    """One of:
-        "unsupervised" — paper's free-bits KL VAE; Z has 2**latent_bits categories.
-        "supervised"   — Z is the persona_id one-hot; encoder is trained as a
-                         classifier; no KL term. Decoder injection is identical.
-    """
-    n_personas: int = 3
-    """Used only in supervised mode. Z has this many categories."""
 
     def __post_init__(self) -> None:
         if self.dim % self.n_q_heads != 0:
@@ -64,12 +56,6 @@ class FreeTransformerConfig:
             )
         if self.latent_bits <= 0 or self.latent_bits > 16:
             raise ValueError("latent_bits must be in [1, 16]")
-        if self.latent_mode not in ("unsupervised", "supervised"):
-            raise ValueError(
-                f"latent_mode must be 'unsupervised' or 'supervised', got {self.latent_mode!r}"
-            )
-        if self.latent_mode == "supervised" and self.n_personas < 2:
-            raise ValueError("n_personas must be >= 2 for supervised mode")
 
     @property
     def head_dim(self) -> int:
@@ -77,8 +63,6 @@ class FreeTransformerConfig:
 
     @property
     def latent_dim(self) -> int:
-        if self.latent_mode == "supervised":
-            return self.n_personas
         return 1 << self.latent_bits
 
 
@@ -239,65 +223,6 @@ class TransformerBlock(nn.Module):
 # --------------------------------------------------------------------------- #
 
 
-class SupervisedPersonaHead(nn.Module):
-    """Maps per-token persona logits to a per-sequence one-hot Z over personas.
-
-    The encoder emits logits of shape ``(B, T, n_personas)``. We mean-pool over
-    valid tokens to get a per-sequence ``(B, n_personas)`` logit vector,
-    softmax it, sample (training) or argmax (eval) into a hard one-hot index,
-    then broadcast the one-hot back to ``(B, T, n_personas)`` so downstream
-    code matches the unsupervised injection path.
-
-    Gradient pass-through uses the standard straight-through trick:
-    ``one_hot + softmax - softmax.detach()``.
-    """
-
-    def __init__(self, n_personas: int) -> None:
-        super().__init__()
-        self.n_personas = n_personas
-
-    def forward(
-        self,
-        logits: torch.Tensor,
-        attn_mask: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return (z_st, persona_logits).
-
-        Args:
-            logits: (B, T, n_personas).
-            attn_mask: (B, T) 1/0 mask. Padded positions are dropped from the pool.
-
-        Returns:
-            z_st: (B, T, n_personas) straight-through one-hot, broadcast across T.
-            persona_logits: (B, n_personas) per-sequence logits for the persona
-                classification head loss.
-        """
-        b, t, c = logits.shape
-        if c != self.n_personas:
-            raise ValueError(f"expected {self.n_personas} categories, got {c}")
-        logits32 = logits.float()
-        logits32 = torch.nan_to_num(logits32, nan=0.0, posinf=20.0, neginf=-20.0)
-        # Mean-pool over valid tokens to get a per-sequence logit.
-        if attn_mask is None:
-            persona_logits = logits32.mean(dim=1)  # (B, C)
-        else:
-            mask = attn_mask.float().unsqueeze(-1)  # (B, T, 1)
-            denom = mask.sum(dim=1).clamp_min(1.0)  # (B, 1)
-            persona_logits = (logits32 * mask).sum(dim=1) / denom  # (B, C)
-        soft = torch.softmax(persona_logits, dim=-1)  # (B, C)
-        # Hard sample at training, argmax at eval — straight-through gradient
-        # in both cases through `soft`.
-        if self.training:
-            index = torch.distributions.Categorical(probs=soft).sample()  # (B,)
-        else:
-            index = soft.argmax(dim=-1)
-        hard = torch.nn.functional.one_hot(index, num_classes=c).float()  # (B, C)
-        z_seq = hard + soft - soft.detach()  # (B, C) straight-through
-        # Broadcast across T so downstream injection code is identical to unsupervised.
-        z_st = z_seq.unsqueeze(1).expand(b, t, c).contiguous()
-        return z_st.to(logits.dtype), persona_logits
-
-
 class BinaryMapper(nn.Module):
     """Maps H independent Bernoulli logits to a one-hot of dimension 2^H.
 
@@ -336,17 +261,7 @@ class BinaryMapper(nn.Module):
         # Cast everything to fp32 inside the mapper. fp16 sigmoids saturate
         # near 0/1 and the joint-probability product underflows.
         logits32 = logits.float()
-        # Guard against fp16 NaN/Inf bleeding through from the encoder block —
-        # at fp16 with random init the encoder linear head can produce non-finite
-        # values on the very first batch, and torch.bernoulli triggers a CUDA
-        # assert on any p outside [0,1] (NaN included). We replace non-finites
-        # with 0 (≡ uniform Bernoulli per bit) and rely on training to recover.
-        logits32 = torch.nan_to_num(logits32, nan=0.0, posinf=20.0, neginf=-20.0)
         probs = torch.sigmoid(logits32)  # P(B_h = 1)
-        # Numerical floor/ceiling: torch.sigmoid(x).clamp(0,1) is identity in
-        # theory but defensive against fp32 round-off producing 1.0+eps when x
-        # is huge — the bernoulli kernel checks strict bounds.
-        probs = probs.clamp(min=0.0, max=1.0)
         # Sample bits.
         bits = torch.bernoulli(probs)  # (B, T, H)
         # Convert to integer index, then one-hot.
@@ -359,12 +274,8 @@ class BinaryMapper(nn.Module):
         log_p_pos = torch.nn.functional.logsigmoid(logits32)  # (B, T, H)
         log_p_neg = torch.nn.functional.logsigmoid(-logits32)  # (B, T, H)
         # Log G_{b,t,d} = sum_h codes[d, h] * log_p_pos + (1-codes[d, h]) * log_p_neg.
-        # `self.codes` is registered as a buffer, so .to(model_dtype) follows the
-        # module dtype (fp16 in V100 training); pin it back to fp32 here so the
-        # einsum dtype matches the fp32 logits we just promoted.
-        codes32 = self.codes.float()
-        log_g = torch.einsum("dh,bth->btd", codes32, log_p_pos) + torch.einsum(
-            "dh,bth->btd", 1.0 - codes32, log_p_neg
+        log_g = torch.einsum("dh,bth->btd", self.codes, log_p_pos) + torch.einsum(
+            "dh,bth->btd", 1.0 - self.codes, log_p_neg
         )  # (B, T, 2^H)
         g = log_g.exp()
         z_st = y + g - g.detach()
@@ -401,15 +312,7 @@ class FreeTransformerEncoder(nn.Module):
         self.zeta = nn.Parameter(torch.randn(1, 1, cfg.dim) * 0.02)
         self.block = TransformerBlock(cfg, causal=False)
         self.head_norm = RMSNorm(cfg.dim, eps=cfg.norm_eps)
-        head_out = cfg.latent_bits if cfg.latent_mode == "unsupervised" else cfg.n_personas
-        self.head = nn.Linear(cfg.dim, head_out, bias=True)
-        # Step-0 stability: initialize the encoder head so the encoder's per-token
-        # output starts near zero. In unsupervised mode this gives sigmoid ≈ 0.5
-        # per bit (uniform Bernoulli) so torch.bernoulli is happy. In supervised
-        # mode this gives softmax ≈ uniform over personas, matching the prior of
-        # the persona_id classifier at step 0.
-        nn.init.zeros_(self.head.bias)
-        nn.init.normal_(self.head.weight, std=0.001)
+        self.head = nn.Linear(cfg.dim, cfg.latent_bits, bias=True)
 
     def forward(
         self,
@@ -436,10 +339,6 @@ class FreeTransformerOutput:
     kl_per_token: torch.Tensor | None
     encoder_logits: torch.Tensor | None
     z: torch.Tensor | None
-    persona_logits: torch.Tensor | None = None
-    """Per-sequence persona classifier logits. Set only when
-    ``cfg.latent_mode == 'supervised'`` and the encoder ran.
-    """
 
 
 class FreeTransformer(nn.Module):
@@ -454,12 +353,7 @@ class FreeTransformer(nn.Module):
             [TransformerBlock(cfg, causal=True) for _ in range(cfg.n_layers)]
         )
         self.encoder = FreeTransformerEncoder(cfg)
-        if cfg.latent_mode == "unsupervised":
-            self.binary_mapper: nn.Module = BinaryMapper(cfg.latent_bits)
-            self.persona_head: nn.Module | None = None
-        else:
-            self.binary_mapper = nn.Identity()  # unused; kept so old ckpts can load
-            self.persona_head = SupervisedPersonaHead(cfg.n_personas)
+        self.binary_mapper = BinaryMapper(cfg.latent_bits)
         self.z_to_residual = nn.Linear(cfg.latent_dim, cfg.dim, bias=False)
         self.final_norm = RMSNorm(cfg.dim, eps=cfg.norm_eps)
         if cfg.tie_embeddings:
@@ -499,7 +393,6 @@ class FreeTransformer(nn.Module):
         attn_mask: torch.Tensor | None = None,
         sample_z_from_prior: bool = False,
         return_encoder_logits: bool = False,
-        fixed_z_index: int | None = None,
     ) -> FreeTransformerOutput:
         """Run a forward pass.
 
@@ -512,9 +405,6 @@ class FreeTransformer(nn.Module):
                 behaviour. Returns kl_per_token=None.
             return_encoder_logits: when True, also returns the encoder's
                 per-token H-dim logits (handy for the analysis script).
-            fixed_z_index: when set, the encoder is skipped and Z is hard-set
-                to the one-hot of this index at every position. Used to test
-                whether the decoder actually consumes Z at generation time.
         """
         b, t = tokens.shape
         cos, sin = self._rope_for(t)
@@ -528,22 +418,11 @@ class FreeTransformer(nn.Module):
 
         encoder_logits: torch.Tensor | None = None
         kl_per_token: torch.Tensor | None = None
-        persona_logits: torch.Tensor | None = None
-        if fixed_z_index is not None:
-            if not (0 <= fixed_z_index < self.cfg.latent_dim):
-                raise ValueError(
-                    f"fixed_z_index out of range [0, {self.cfg.latent_dim - 1}]: {fixed_z_index}"
-                )
-            z = self._fixed_z(b, t, fixed_z_index, x.device, x.dtype)
-        elif sample_z_from_prior:
+        if sample_z_from_prior:
             z = self._sample_z_uniform(b, t, x.device, x.dtype)
         else:
             encoder_logits = self.encoder(x_half, cos, sin, attn_mask=attn_mask)
-            if self.cfg.latent_mode == "unsupervised":
-                z, kl_per_token = self.binary_mapper(encoder_logits)
-            else:
-                assert self.persona_head is not None
-                z, persona_logits = self.persona_head(encoder_logits, attn_mask=attn_mask)
+            z, kl_per_token = self.binary_mapper(encoder_logits)
         # R = W_z · z; injected as additive on K/V of the very next block.
         r = self.z_to_residual(z)
 
@@ -569,7 +448,6 @@ class FreeTransformer(nn.Module):
             kl_per_token=kl_per_token,
             encoder_logits=encoder_logits if return_encoder_logits else None,
             z=z,
-            persona_logits=persona_logits,
         )
 
     def _sample_z_uniform(
@@ -579,96 +457,6 @@ class FreeTransformer(nn.Module):
         index = torch.randint(0, self.cfg.latent_dim, (batch, seq_len), device=device)
         z = torch.nn.functional.one_hot(index, num_classes=self.cfg.latent_dim).to(dtype)
         return z
-
-    def _fixed_z(
-        self, batch: int, seq_len: int, idx: int, device: torch.device, dtype: torch.dtype
-    ) -> torch.Tensor:
-        """One-hot Z at a fixed index, broadcast to (B, T, latent_dim)."""
-        z = torch.zeros(batch, seq_len, self.cfg.latent_dim, device=device, dtype=dtype)
-        z[..., idx] = 1.0
-        return z
-
-    @torch.no_grad()
-    def generate(
-        self,
-        prompt_ids: torch.Tensor,
-        prompt_mask: torch.Tensor,
-        *,
-        max_new_tokens: int = 64,
-        temperature: float = 0.8,
-        top_k: int = 40,
-        eos_token_id: int | None = None,
-        fixed_z_index: int | None = None,
-        sample_z_from_prior: bool = False,
-    ) -> torch.Tensor:
-        """Greedy / top-k autoregressive sampling.
-
-        Args:
-            prompt_ids: (B, T_prompt) input ids. Padded slots get attention
-                mask 0; new tokens append after the last attended position.
-            prompt_mask: (B, T_prompt) 1/0 attention mask matching prompt_ids.
-            max_new_tokens: how many tokens to append.
-            temperature: softmax temperature; 0 → argmax.
-            top_k: restrict sampling to the top-k logits (0 → full vocab).
-            eos_token_id: stop appending for any sequence once it produces this.
-            fixed_z_index: forwarded to ``forward()`` — Z is clamped to this
-                index for every position. Required when probing whether the
-                decoder uses Z.
-            sample_z_from_prior: alternative to fixed Z; samples Z uniformly
-                each forward pass.
-
-        Returns:
-            (B, T_prompt + n_appended) int64 tensor. Sequences that hit EOS
-            early continue receiving padding-equivalent tokens until the
-            longest is done; the caller can trim by attention mask.
-        """
-        if fixed_z_index is None and not sample_z_from_prior:
-            raise ValueError(
-                "generate() requires either fixed_z_index= or sample_z_from_prior=True; "
-                "the encoder is meaningless during generation (no future tokens to attend to)."
-            )
-        device = prompt_ids.device
-        b = prompt_ids.shape[0]
-        ids = prompt_ids.clone()
-        mask = prompt_mask.clone()
-        finished = torch.zeros(b, dtype=torch.bool, device=device)
-        for _ in range(max_new_tokens):
-            if ids.shape[1] >= self.cfg.max_seq_len:
-                break
-            out = self(
-                ids,
-                attn_mask=mask,
-                fixed_z_index=fixed_z_index,
-                sample_z_from_prior=sample_z_from_prior,
-            )
-            # Logits at the last attended position per row.
-            last_pos = mask.sum(dim=1) - 1  # (B,)
-            row_idx = torch.arange(b, device=device)
-            next_logits = out.logits[row_idx, last_pos].float()  # (B, V)
-            if temperature <= 0:
-                next_tok = next_logits.argmax(dim=-1)
-            else:
-                next_logits = next_logits / temperature
-                if top_k and top_k > 0:
-                    topk_vals, _ = next_logits.topk(top_k, dim=-1)
-                    cutoff = topk_vals[:, -1].unsqueeze(-1)
-                    next_logits = next_logits.masked_fill(next_logits < cutoff, float("-inf"))
-                probs = torch.softmax(next_logits, dim=-1)
-                next_tok = torch.multinomial(probs, num_samples=1).squeeze(-1)
-            # For finished sequences keep emitting pad to preserve shape.
-            if eos_token_id is not None:
-                next_tok = torch.where(
-                    finished,
-                    torch.full_like(next_tok, self.cfg.pad_token_id),
-                    next_tok,
-                )
-                finished = finished | (next_tok == eos_token_id)
-            # Append.
-            ids = torch.cat([ids, next_tok.unsqueeze(-1)], dim=1)
-            mask = torch.cat([mask, (~finished).long().unsqueeze(-1)], dim=1)
-            if eos_token_id is not None and bool(finished.all()):
-                break
-        return ids
 
     @torch.no_grad()
     def encode(self, tokens: torch.Tensor, *, attn_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -716,49 +504,5 @@ def free_transformer_loss(
         "ce": float(ce.detach()),
         "kl_mean": float(kl_per_token.mean().detach()),
         "kl_excess": float(kl_term.detach()),
-    }
-    return total, metrics
-
-
-def supervised_freet_loss(
-    logits: torch.Tensor,
-    targets: torch.Tensor,
-    persona_logits: torch.Tensor,
-    persona_labels: torch.Tensor,
-    *,
-    pad_token_id: int,
-    persona_loss_weight: float = 1.0,
-) -> tuple[torch.Tensor, dict[str, float]]:
-    """Loss for supervised-Z mode: next-token CE + persona-classifier CE.
-
-    Args:
-        logits: (B, T, V) decoder LM logits.
-        targets: (B, T) shifted next-token targets.
-        persona_logits: (B, n_personas) per-sequence encoder classifier logits.
-        persona_labels: (B,) integer persona id labels.
-        pad_token_id: ignore index for the next-token CE.
-        persona_loss_weight: scalar weight on the persona CE term.
-
-    Returns:
-        (total_loss, metrics).
-    """
-    vocab = logits.shape[-1]
-    ce = torch.nn.functional.cross_entropy(
-        logits.reshape(-1, vocab),
-        targets.reshape(-1),
-        ignore_index=pad_token_id,
-        reduction="mean",
-    )
-    persona_ce = torch.nn.functional.cross_entropy(
-        persona_logits, persona_labels, reduction="mean"
-    )
-    total = ce + persona_loss_weight * persona_ce
-    with torch.no_grad():
-        persona_acc = (persona_logits.argmax(dim=-1) == persona_labels).float().mean()
-    metrics = {
-        "loss": float(total.detach()),
-        "ce": float(ce.detach()),
-        "persona_ce": float(persona_ce.detach()),
-        "persona_acc": float(persona_acc.detach()),
     }
     return total, metrics

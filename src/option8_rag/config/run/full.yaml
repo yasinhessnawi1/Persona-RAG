@@ -1,0 +1,5 @@
+# Full-corpus run on V100. No subsampling, full eval.
+name: full
+smoke: false
+smoke_max_queries: -1
+smoke_max_chunks: -1

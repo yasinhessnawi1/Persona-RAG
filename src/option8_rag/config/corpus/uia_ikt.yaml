@@ -1,0 +1,24 @@
+# UiA IKT corpus configuration.
+#
+# Sitemap-driven crawl of public IKT course pages plus a small list of
+# programme overview pages. Polite static fetching with rate limiting and
+# robots.txt enforcement.
+name: uia_ikt
+crawl:
+  sitemap_url: https://www.uia.no/sitemap.xml
+  # Only URLs whose path matches this regex are kept.
+  url_regex: "^https://www\\.uia\\.no/english/studies/courses/\\d{4}/(autumn|spring)/ikt[\\w-]+\\.html$"
+  # Hand-picked seed pages (programme overviews etc.) added on top of the
+  # sitemap-derived course pages.
+  extra_urls:
+    - https://www.uia.no/en/studies/find-courses
+  user_agent: "option8-rag/0.1 (UiA IKT corpus, academic research)"
+  delay_seconds: 1.0
+  jitter_seconds: 0.5
+  max_pages: 1000
+  obey_robots: true
+chunking:
+  size: 512
+  overlap: 64
+# Held-out QA set for end-to-end evaluation.
+qa_path: ${paths.data_root}/uia_ikt/qa.jsonl

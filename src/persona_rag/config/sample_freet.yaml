@@ -1,0 +1,21 @@
+# Hydra entry config for scripts/sample_freet_with_fixed_z.py.
+
+defaults:
+  - freet: default
+  - _self_
+
+# Path to the .pt checkpoint (must be a supervised-mode checkpoint).
+ckpt: ???
+
+# Sampling.
+n_samples_per_persona: 5
+max_new_tokens: 80
+temperature: 0.8
+top_k: 40
+
+report_dir: results/freet_sampling/${now:%Y%m%d_%H%M%S}
+
+hydra:
+  run:
+    dir: ${report_dir}
+  output_subdir: hydra

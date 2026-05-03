@@ -89,6 +89,16 @@ dependencies = [
     # `load_dataset` builder discovery path. Pulls in pyarrow (darwin-arm64
     # wheels are published) but no other heavyweight transitive.
     "datasets>=3,<4",
+    # ----- option-8 sub-project -----
+    # Polite static HTML fetcher used by the option-8 ingest layer for the
+    # small UiA-IKT corpus. 0.4.x is the current stable line; tight upper
+    # bound because the API surface is still evolving (see release notes).
+    "scrapling>=0.4.7,<0.5",
+    # Python wrapper around trec_eval; standard tool for retrieval metric
+    # computation in BEIR-style evaluations (Recall@k, nDCG@k, MAP@k).
+    # MRR is computed by a small custom helper because pytrec_eval does
+    # not expose it consistently across versions.
+    "pytrec_eval>=0.5,<0.6",
 ]
 
 [project.optional-dependencies]
@@ -105,7 +115,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/persona_rag"]
+packages = ["src/persona_rag", "src/option8_rag"]
 
 # -------------------- tooling --------------------
 
@@ -151,6 +161,11 @@ disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# src-layout: make source packages importable without an editable install
+# round-trip (the editable .pth uv generates is named with a leading
+# underscore and is therefore skipped by site.py's pth scanner on some
+# Python builds, so an explicit pythonpath is the reliable fix).
+pythonpath = ["src"]
 addopts = [
     "-q",
     "--strict-markers",

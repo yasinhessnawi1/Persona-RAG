@@ -1,0 +1,6 @@
+# Dense retriever (Chroma + cosine HNSW).
+name: dense
+top_k: 10
+chroma:
+  hnsw_space: cosine
+  hnsw_ef_search: 100
