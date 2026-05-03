@@ -94,6 +94,12 @@ dependencies = [
     # small UiA-IKT corpus. 0.4.x is the current stable line; tight upper
     # bound because the API surface is still evolving (see release notes).
     "scrapling>=0.4.7,<0.5",
+    # curl_cffi is imported unconditionally by scrapling's static fetcher
+    # path (`scrapling.engines.static` -> `from curl_cffi.curl import
+    # CurlError`). Scrapling 0.4.x lists it in optional extras only, so
+    # pinning it here is required for the ingest CLI to run. Wheels ship
+    # for linux-x86_64 (V100 servers) and darwin-arm64 (dev machines).
+    "curl_cffi>=0.7,<0.13",
     # Python wrapper around trec_eval; standard tool for retrieval metric
     # computation in BEIR-style evaluations (Recall@k, nDCG@k, MAP@k).
     # MRR is computed by a small custom helper because pytrec_eval does
