@@ -1,0 +1,6 @@
+# BM25 retriever (bm25s, BM25Okapi defaults).
+name: bm25
+top_k: 10
+# Lower-cased whitespace tokeniser by default. bm25s exposes a Python
+# tokeniser; the wrapper passes options through.
+lowercase: true

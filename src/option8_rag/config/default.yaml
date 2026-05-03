@@ -1,0 +1,33 @@
+# Default top-level configuration for the option8 RAG pipeline.
+#
+# Selects a corpus, an embedder, a retriever, a generator, and a judge via
+# Hydra defaults. Override any group on the command line, e.g.:
+#
+#   python -m option8_rag.cli.evaluate corpus=beir_nq embedder=bge_large
+#
+defaults:
+  - corpus: beir_nq
+  - embedder: bge_large
+  - retriever: dense
+  - generator: llama31_8b
+  - judge: gemma2_9b
+  - run: local
+  - _self_
+
+seed: 17
+log_level: INFO
+
+# Persistence roots; absolute paths are resolved relative to ${oc.env:HOME}.
+paths:
+  data_root: ${oc.env:OPTION8_DATA_ROOT,${hydra:runtime.cwd}/data/option8}
+  cache_root: ${paths.data_root}/cache
+  chroma_root: ${paths.data_root}/chroma
+  embeddings_root: ${paths.data_root}/embeddings
+  raw_root: ${paths.data_root}/raw
+  results_root: ${paths.data_root}/results
+
+hydra:
+  run:
+    dir: ${paths.results_root}/${now:%Y%m%d}/${now:%H%M%S}
+  job:
+    chdir: false

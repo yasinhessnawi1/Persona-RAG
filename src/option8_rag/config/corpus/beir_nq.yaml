@@ -1,0 +1,20 @@
+# BEIR/NQ corpus configuration.
+#
+# Loads the corpus, queries, and qrels from the official HuggingFace mirrors.
+name: beir_nq
+hf:
+  corpus_dataset: BeIR/nq
+  corpus_config: corpus
+  corpus_split: corpus
+  queries_dataset: BeIR/nq
+  queries_config: queries
+  queries_split: queries
+  qrels_dataset: BeIR/nq-qrels
+  qrels_split: test
+chunking:
+  size: 512
+  overlap: 64
+# When true, run the full corpus end-to-end. When false, take the first
+# `subsample_size` documents (used for smoke tests only).
+full_corpus: true
+subsample_size: 1000
