@@ -118,17 +118,28 @@ class ChromaIndex:
 
     # -- read ----------------------------------------------------------
 
+    # Chroma's SQLite-backed query path binds host parameters per query
+    # row, so a 3,452-query batch on BEIR/NQ overflows the engine's
+    # variable cap ("too many SQL variables"). Slice into windows that
+    # stay below SQLite's default 999 / 32,766 limits with margin.
+    _QUERY_BATCH_CAP = 64
+
     def query(
         self,
         *,
         query_embeddings: np.ndarray,
         top_k: int,
+        batch_size: int | None = None,
     ) -> list[list[RetrievedChunk]]:
         """Top-k retrieval for a batch of query embeddings.
 
         Args:
             query_embeddings: ``(n_queries, dim)`` float array.
             top_k: Number of results per query.
+            batch_size: Optional override for the per-call query batch
+                size. Defaults to ``_QUERY_BATCH_CAP``; lower if the
+                SQLite "too many SQL variables" error reappears on a
+                build with a tighter compile-time cap.
 
         Returns:
             A list of length ``n_queries``; each entry is a list of
@@ -140,18 +151,30 @@ class ChromaIndex:
                 f"query_embeddings must be 2D, got shape {query_embeddings.shape}",
             )
 
-        result = self._collection.query(
-            query_embeddings=query_embeddings.tolist(),
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
+        bs = max(1, min(int(batch_size or self._QUERY_BATCH_CAP), self._QUERY_BATCH_CAP))
+        n = int(query_embeddings.shape[0])
+        out: list[list[RetrievedChunk]] = []
+
+        for start in range(0, n, bs):
+            end = min(start + bs, n)
+            sub = query_embeddings[start:end]
+            result = self._collection.query(
+                query_embeddings=sub.tolist(),
+                n_results=top_k,
+                include=["documents", "metadatas", "distances"],
+            )
+            out.extend(self._materialise_query_result(result))
+        return out
+
+    def _materialise_query_result(self, result: dict) -> list[list[RetrievedChunk]]:
+        """Convert one Chroma query response into our RetrievedChunk rows."""
 
         ids_batch = result.get("ids") or []
         docs_batch = result.get("documents") or []
         meta_batch = result.get("metadatas") or []
         dist_batch = result.get("distances") or []
 
-        out: list[list[RetrievedChunk]] = []
+        rows: list[list[RetrievedChunk]] = []
         for ids, docs, metas, dists in zip(
             ids_batch,
             docs_batch,
@@ -176,5 +199,5 @@ class ChromaIndex:
                         score=float(1.0 - float(dist)),
                     ),
                 )
-            out.append(row)
-        return out
+            rows.append(row)
+        return rows
