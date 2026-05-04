@@ -17,6 +17,14 @@ defaults:
 seed: 17
 log_level: INFO
 
+# Index-build knobs.
+index:
+  # Number of chunks per (encode + Chroma upsert) mini-batch. Chroma's
+  # per-call upsert is hard-capped at ~5,461 rows; we stay below that.
+  # Lower this if peak GPU memory is tight; raise it (up to the cap)
+  # for slightly higher throughput.
+  upsert_batch_size: 5000
+
 # Persistence roots; absolute paths are resolved relative to ${oc.env:HOME}.
 paths:
   data_root: ${oc.env:OPTION8_DATA_ROOT,${hydra:runtime.cwd}/data/option8}

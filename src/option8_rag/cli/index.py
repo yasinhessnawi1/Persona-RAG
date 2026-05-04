@@ -3,6 +3,12 @@
 Loads the corpus, chunks it, encodes the chunks via the embedder's
 ``encode_passages``, and upserts into a Chroma collection whose name is
 deterministically derived from ``(corpus, embedder, chunk_size, overlap)``.
+
+The embed + upsert step streams in mini-batches: for each slice of
+``upsert_batch_size`` chunks we encode and immediately upsert into Chroma.
+This keeps peak RAM bounded (we never materialise the full ``(N, dim)``
+embedding tensor) and stays under Chroma's hard ~5,461 row cap on a
+single ``upsert`` call.
 """
 
 from __future__ import annotations
@@ -12,7 +18,6 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import hydra
-import numpy as np
 from loguru import logger
 from omegaconf import DictConfig
 
@@ -22,6 +27,10 @@ from option8_rag.embeddings.encoder import TextEncoder
 from option8_rag.index.chroma_index import ChromaIndex, IndexConfig
 from option8_rag.ingest.beir import BeirLoader
 from option8_rag.types import Chunk, Document
+
+# Chroma's single-call upsert cap is ~5,461 rows in current builds; keep a
+# margin so future bumps don't surprise us.
+_CHROMA_UPSERT_CAP = 5000
 
 
 @hydra.main(
@@ -67,8 +76,13 @@ def main(cfg: DictConfig) -> None:
         logger.warning("no chunks produced; index unchanged (count={c})", c=index.count)
         return
 
-    embeddings = _encode_in_batches(encoder=encoder, chunks=chunks)
-    index.upsert(chunks=chunks, embeddings=embeddings)
+    upsert_batch_size = _resolve_upsert_batch_size(cfg)
+    embedding_dim = _stream_embed_and_upsert(
+        encoder=encoder,
+        index=index,
+        chunks=chunks,
+        upsert_batch_size=upsert_batch_size,
+    )
 
     summary = {
         "corpus": cfg.corpus.name,
@@ -77,7 +91,8 @@ def main(cfg: DictConfig) -> None:
         "chunk_overlap": cfg.corpus.chunking.overlap,
         "n_documents": len(documents),
         "n_chunks": len(chunks),
-        "embedding_dim": int(embeddings.shape[1]),
+        "embedding_dim": embedding_dim,
+        "upsert_batch_size": upsert_batch_size,
         "collection": index.config.collection_name,
         "count": index.count,
     }
@@ -139,13 +154,54 @@ def _load_uia_documents(out_dir: Path) -> list[Document]:
     return documents
 
 
-def _encode_in_batches(*, encoder: TextEncoder, chunks: list[Chunk]) -> np.ndarray:
-    pieces: list[np.ndarray] = []
-    bs = max(1, int(encoder.batch_size))
-    for start in range(0, len(chunks), bs):
+def _resolve_upsert_batch_size(cfg: DictConfig) -> int:
+    """Pull `index.upsert_batch_size` from config, clamping to Chroma's cap."""
+
+    raw = None
+    if "index" in cfg and "upsert_batch_size" in cfg.index:
+        raw = int(cfg.index.upsert_batch_size)
+    elif "upsert_batch_size" in cfg:
+        raw = int(cfg.upsert_batch_size)
+    if raw is None or raw <= 0:
+        raw = _CHROMA_UPSERT_CAP
+    return min(raw, _CHROMA_UPSERT_CAP)
+
+
+def _stream_embed_and_upsert(
+    *,
+    encoder: TextEncoder,
+    index: ChromaIndex,
+    chunks: list[Chunk],
+    upsert_batch_size: int,
+) -> int:
+    """Encode and upsert chunks in mini-batches; return embedding dim.
+
+    Embedding the full corpus into a single ``(N, dim)`` tensor before
+    writing exceeds RAM at BEIR/NQ scale and exceeds Chroma's per-call
+    upsert cap. This streams the work: for each window we encode just
+    that slice and upsert it before moving on.
+    """
+
+    n = len(chunks)
+    bs = max(1, min(upsert_batch_size, _CHROMA_UPSERT_CAP))
+    embedding_dim = 0
+    log_every = max(1, n // 50)  # ~50 progress lines for the full run
+
+    for start in range(0, n, bs):
         batch = chunks[start : start + bs]
-        pieces.append(encoder.encode_passages([c.text for c in batch]))
-    return np.concatenate(pieces, axis=0) if pieces else np.zeros((0, encoder.dimension))
+        embeddings = encoder.encode_passages([c.text for c in batch])
+        index.upsert(chunks=batch, embeddings=embeddings)
+        embedding_dim = int(embeddings.shape[1])
+
+        end = start + len(batch)
+        if start == 0 or end == n or (end // log_every) > (start // log_every):
+            logger.info(
+                "indexed {done}/{total} chunks ({pct:.1f}%)",
+                done=end,
+                total=n,
+                pct=100.0 * end / n,
+            )
+    return embedding_dim
 
 
 if __name__ == "__main__":
