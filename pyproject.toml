@@ -100,6 +100,14 @@ dependencies = [
     # pinning it here is required for the ingest CLI to run. Wheels ship
     # for linux-x86_64 (V100 servers) and darwin-arm64 (dev machines).
     "curl_cffi>=0.7,<0.13",
+    # playwright is also imported unconditionally on the static fetcher
+    # path (`scrapling.engines.toolbelt.convertor` -> `from
+    # playwright._impl._errors import Error as PlaywrightError`). Same
+    # situation as curl_cffi above: scrapling 0.4.x lists it as optional
+    # but uses it at import time. The Python package alone is enough —
+    # we don't need to run `playwright install` to download browsers,
+    # because the option-8 crawler only uses the static HTTP fetcher.
+    "playwright>=1.40,<2",
     # Python wrapper around trec_eval; standard tool for retrieval metric
     # computation in BEIR-style evaluations (Recall@k, nDCG@k, MAP@k).
     # MRR is computed by a small custom helper because pytrec_eval does
