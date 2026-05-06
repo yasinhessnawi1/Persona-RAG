@@ -96,6 +96,38 @@ class GroundednessJudge:
         self.config = config
         self._tokenizer = None
         self._model = None
+        self._supports_system_role_cached: bool | None = None
+
+    def _supports_system_role(self) -> bool:
+        """Detect whether the judge's chat template accepts a `system` role.
+
+        Probes the template once with a trivial system message and caches
+        the result. Gemma's template raises ``TemplateError: System role
+        not supported`` and that's the signal we want to catch; any other
+        Jinja error we treat as "supported" so the real error surfaces at
+        the actual call site.
+        """
+
+        if self._supports_system_role_cached is not None:
+            return self._supports_system_role_cached
+        try:
+            self._tokenizer.apply_chat_template(  # type: ignore[union-attr]
+                [
+                    {"role": "system", "content": "probe"},
+                    {"role": "user", "content": "probe"},
+                ],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+            self._supports_system_role_cached = True
+        except Exception as exc:
+            if "System role not supported" in str(exc):
+                self._supports_system_role_cached = False
+            else:
+                # Re-raise on unexpected template failures so we don't
+                # silently misclassify them as "no system support".
+                raise
+        return self._supports_system_role_cached
 
     def _load(self) -> None:
         if self._model is not None:
@@ -171,16 +203,29 @@ class GroundednessJudge:
         assert self._tokenizer is not None
         assert self._model is not None
 
-        user = (
+        user_body = (
             f"Context passages:\n\n{context}\n\n"
             f"Question: {question}\n\n"
             f"Answer to evaluate: {answer}\n\n"
             f"{rubric}"
         )
-        messages = [
-            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-            {"role": "user", "content": user},
-        ]
+        # Some chat templates (notably Gemma's) reject a `system` role and
+        # raise "System role not supported" inside Jinja. Detect the case
+        # by trying with a system message and falling back to a single
+        # user turn that prepends the system prompt. Cached so we only
+        # pay the failed-template cost once per judge instance.
+        if not self._supports_system_role():
+            messages = [
+                {
+                    "role": "user",
+                    "content": f"{JUDGE_SYSTEM_PROMPT}\n\n{user_body}",
+                },
+            ]
+        else:
+            messages = [
+                {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_body},
+            ]
         inputs = self._tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -190,15 +235,20 @@ class GroundednessJudge:
 
         import torch
 
+        # Greedy decoding: keep `do_sample=False` and drop the sampling
+        # knobs to avoid the transformers warning about temperature being
+        # ignored when sampling is off.
+        gen_kwargs: dict[str, object] = {
+            "max_new_tokens": self.config.max_new_tokens,
+            "do_sample": self.config.do_sample,
+            "pad_token_id": self._tokenizer.pad_token_id,
+        }
+        if self.config.do_sample:
+            gen_kwargs["temperature"] = self.config.temperature
+            gen_kwargs["top_p"] = self.config.top_p
+
         with torch.inference_mode():
-            output_ids = self._model.generate(
-                inputs,
-                max_new_tokens=self.config.max_new_tokens,
-                do_sample=self.config.do_sample,
-                temperature=self.config.temperature,
-                top_p=self.config.top_p,
-                pad_token_id=self._tokenizer.pad_token_id,
-            )
+            output_ids = self._model.generate(inputs, **gen_kwargs)
 
         new_tokens = output_ids[0, inputs.shape[-1] :]
         decoded = self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()

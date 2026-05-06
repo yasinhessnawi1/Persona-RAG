@@ -76,6 +76,46 @@ class GroundedGenerator:
         self.context_top_k = context_top_k
         self._tokenizer = None
         self._model = None
+        self._supports_system_role_cached: bool | None = None
+
+    # -- chat-template helpers -----------------------------------------
+
+    def _supports_system_role(self) -> bool:
+        """Return True if the loaded chat template accepts a `system` role."""
+
+        if self._supports_system_role_cached is not None:
+            return self._supports_system_role_cached
+        try:
+            self._tokenizer.apply_chat_template(  # type: ignore[union-attr]
+                [
+                    {"role": "system", "content": "probe"},
+                    {"role": "user", "content": "probe"},
+                ],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+            self._supports_system_role_cached = True
+        except Exception as exc:
+            if "System role not supported" in str(exc):
+                self._supports_system_role_cached = False
+            else:
+                raise
+        return self._supports_system_role_cached
+
+    @staticmethod
+    def _fold_system_into_first_user(
+        messages: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        """Prepend any system-turn content to the first user turn."""
+
+        sys_parts = [m["content"] for m in messages if m["role"] == "system"]
+        rest = [m for m in messages if m["role"] != "system"]
+        if not sys_parts or not rest:
+            return rest or messages
+        sys_blob = "\n\n".join(sys_parts)
+        first = rest[0]
+        rewritten = {**first, "content": f"{sys_blob}\n\n{first['content']}"}
+        return [rewritten, *rest[1:]]
 
     # -- model loading -------------------------------------------------
 
@@ -140,6 +180,8 @@ class GroundedGenerator:
         assert self._model is not None
 
         messages = self._build_messages(query=query, retrieved=retrieved)
+        if not self._supports_system_role():
+            messages = self._fold_system_into_first_user(messages)
         inputs = self._tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=True,
@@ -149,15 +191,19 @@ class GroundedGenerator:
 
         import torch
 
+        # Greedy decoding: pass sampling knobs only when do_sample=True
+        # so transformers doesn't warn about an ignored temperature.
+        gen_kwargs: dict[str, object] = {
+            "max_new_tokens": self.generation.max_new_tokens,
+            "do_sample": self.generation.do_sample,
+            "pad_token_id": self._tokenizer.pad_token_id,
+        }
+        if self.generation.do_sample:
+            gen_kwargs["temperature"] = self.generation.temperature
+            gen_kwargs["top_p"] = self.generation.top_p
+
         with torch.inference_mode():
-            output_ids = self._model.generate(
-                inputs,
-                max_new_tokens=self.generation.max_new_tokens,
-                do_sample=self.generation.do_sample,
-                temperature=self.generation.temperature,
-                top_p=self.generation.top_p,
-                pad_token_id=self._tokenizer.pad_token_id,
-            )
+            output_ids = self._model.generate(inputs, **gen_kwargs)
 
         new_tokens = output_ids[0, inputs.shape[-1] :]
         answer = self._tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
