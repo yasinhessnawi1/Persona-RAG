@@ -14,13 +14,43 @@ from loguru import logger
 
 from option8_rag.types import RetrievedChunk
 
-SYSTEM_PROMPT = (
+SYSTEM_PROMPT_VERBOSE = (
     "You are a careful retrieval-augmented assistant. Answer the user's "
     "question using only the provided context passages. If the answer "
     "cannot be derived from the context, say so explicitly. Cite the "
     "passages you used inline using their chunk identifiers in square "
     "brackets, e.g. [c1]."
 )
+
+SYSTEM_PROMPT_EXTRACTIVE = (
+    "You answer questions using only the provided context passages.\n\n"
+    "Rules:\n"
+    "- Answer in as few words as possible — typically 1 to 5 words.\n"
+    "- Do not write a sentence. Do not add introductions, explanations, "
+    "or citations.\n"
+    "- Output only the bare fact, copied or paraphrased minimally from "
+    "the context.\n"
+    "- If the context does not contain the answer, output exactly: "
+    "I don't know."
+)
+
+# Backward-compatible alias; defaults to the verbose prompt.
+SYSTEM_PROMPT = SYSTEM_PROMPT_VERBOSE
+
+_PROMPT_REGISTRY = {
+    "verbose": SYSTEM_PROMPT_VERBOSE,
+    "extractive": SYSTEM_PROMPT_EXTRACTIVE,
+}
+
+
+def get_system_prompt(style: str) -> str:
+    """Return the system prompt body for a named style."""
+
+    if style not in _PROMPT_REGISTRY:
+        raise ValueError(
+            f"unknown prompt style {style!r}; choose from {sorted(_PROMPT_REGISTRY)}",
+        )
+    return _PROMPT_REGISTRY[style]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +97,7 @@ class GroundedGenerator:
         attn_implementation: str = "sdpa",
         generation: GenerationConfig = _DEFAULT_GENERATION,
         context_top_k: int = 5,
+        prompt_style: str = "verbose",
     ) -> None:
         self.model_id = model_id
         self.device = device
@@ -74,6 +105,8 @@ class GroundedGenerator:
         self.attn_implementation = attn_implementation
         self.generation = generation
         self.context_top_k = context_top_k
+        self.prompt_style = prompt_style
+        self.system_prompt = get_system_prompt(prompt_style)
         self._tokenizer = None
         self._model = None
         self._supports_system_role_cached: bool | None = None
@@ -267,13 +300,22 @@ class GroundedGenerator:
         retrieved: Sequence[RetrievedChunk],
     ) -> list[dict[str, str]]:
         snippets = list(retrieved)[: self.context_top_k]
+        is_extractive = self.prompt_style == "extractive"
+
         if not snippets:
-            user_content = (
-                f"Question: {query}\n\n"
-                "(no context passages were retrieved)\n\n"
-                "Please answer the question if possible, otherwise state "
-                "that you don't have enough information."
-            )
+            if is_extractive:
+                user_content = (
+                    f"Question: {query}\n\n"
+                    "(no context passages were retrieved)\n\n"
+                    "Output exactly: I don't know."
+                )
+            else:
+                user_content = (
+                    f"Question: {query}\n\n"
+                    "(no context passages were retrieved)\n\n"
+                    "Please answer the question if possible, otherwise state "
+                    "that you don't have enough information."
+                )
         else:
             blocks: list[str] = []
             for i, item in enumerate(snippets, start=1):
@@ -282,15 +324,24 @@ class GroundedGenerator:
                     f"[{tag}] (chunk_id={item.chunk.chunk_id})\n{item.chunk.text}",
                 )
             joined = "\n\n".join(blocks)
-            user_content = (
-                f"Context passages:\n\n{joined}\n\n"
-                f"Question: {query}\n\n"
-                "Answer the question using only the context above. Cite "
-                "passages with their tags in square brackets."
-            )
+            if is_extractive:
+                user_content = (
+                    f"Context passages:\n\n{joined}\n\n"
+                    f"Question: {query}\n\n"
+                    "Reply with the bare fact only — no sentence, no "
+                    "citations, no explanation. If the context does not "
+                    "contain the answer, reply: I don't know."
+                )
+            else:
+                user_content = (
+                    f"Context passages:\n\n{joined}\n\n"
+                    f"Question: {query}\n\n"
+                    "Answer the question using only the context above. Cite "
+                    "passages with their tags in square brackets."
+                )
 
         return [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_content},
         ]
 

@@ -10,3 +10,6 @@ top_p: 1.0
 do_sample: false
 # How many retrieved chunks to feed into the prompt.
 context_top_k: 5
+# System-prompt style: "verbose" (citations + explanations) or
+# "extractive" (bare-fact, 1-5 word answers, optimised for EM/F1).
+prompt_style: verbose

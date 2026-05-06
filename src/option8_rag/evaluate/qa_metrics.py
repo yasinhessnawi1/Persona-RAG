@@ -1,7 +1,15 @@
-"""Short-answer evaluation: exact match and token-level F1.
+"""Short-answer evaluation: exact match, token-level F1, and contains-match.
 
 Implementation follows the SQuAD/NQ convention: lower-case, strip
 punctuation, drop articles, normalise whitespace.
+
+The ``contains_match`` metric is a deliberately permissive check that
+credits a prediction whenever (after normalisation) it contains the
+reference as a substring. It exists because instruction-tuned RAG
+generators tend to wrap the bare fact in a sentence ("According to
+[c1], the answer is X") which extractive EM/F1 punish severely without
+that meaning the system was wrong. Contains-match is paired with EM/F1
+in reports — it is *not* a replacement.
 """
 
 from __future__ import annotations
@@ -59,21 +67,47 @@ def token_f1(prediction: str, references: Sequence[str]) -> float:
     return best
 
 
+def contains_match(prediction: str, references: Sequence[str]) -> float:
+    """1.0 if any normalised reference is a substring of the normalised prediction.
+
+    This is the lenient counterpart to :func:`exact_match`. It credits a
+    sentence-wrapped answer that still contains the bare fact, e.g.
+    prediction "the course leader is Morten Goodwin" and reference
+    "Morten Goodwin" both normalise to forms where the latter is a
+    substring of the former.
+    """
+
+    if not references:
+        return 0.0
+    pred_norm = normalize_answer(prediction)
+    if not pred_norm:
+        return 0.0
+    for r in references:
+        ref_norm = normalize_answer(r)
+        if ref_norm and ref_norm in pred_norm:
+            return 1.0
+    return 0.0
+
+
 def aggregate(
     *,
     predictions: Iterable[str],
     references: Iterable[Sequence[str]],
 ) -> dict[str, float]:
-    """Macro EM and F1 over a parallel iterable of predictions and references."""
+    """Macro EM, F1, and contains-match over parallel predictions and references."""
 
     em_scores: list[float] = []
     f1_scores: list[float] = []
+    contains_scores: list[float] = []
     for pred, refs in zip(predictions, references, strict=True):
-        em_scores.append(exact_match(pred, list(refs)))
-        f1_scores.append(token_f1(pred, list(refs)))
+        ref_list = list(refs)
+        em_scores.append(exact_match(pred, ref_list))
+        f1_scores.append(token_f1(pred, ref_list))
+        contains_scores.append(contains_match(pred, ref_list))
     if not em_scores:
-        return {"em": 0.0, "f1": 0.0}
+        return {"em": 0.0, "f1": 0.0, "contains": 0.0}
     return {
         "em": sum(em_scores) / len(em_scores),
         "f1": sum(f1_scores) / len(f1_scores),
+        "contains": sum(contains_scores) / len(contains_scores),
     }

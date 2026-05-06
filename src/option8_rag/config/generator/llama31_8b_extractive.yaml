@@ -1,0 +1,17 @@
+# Llama-3.1-8B-Instruct with the bare-fact extractive prompt.
+#
+# Same model + decoding as `llama31_8b`, but the system prompt forces
+# 1-5 word answers without citations. Optimised for EM/F1 evaluation
+# against short-answer references.
+name: llama31_8b_extractive
+model_id: meta-llama/Llama-3.1-8B-Instruct
+dtype: float16
+device: auto
+attn_implementation: sdpa
+# Short answers; cap output to keep generation cheap.
+max_new_tokens: 64
+temperature: 0.0
+top_p: 1.0
+do_sample: false
+context_top_k: 5
+prompt_style: extractive

@@ -147,6 +147,7 @@ def _eval_uia(*, cfg: DictConfig, paths: dict[str, Path]) -> dict[str, object]:
             do_sample=bool(cfg.generator.do_sample),
         ),
         context_top_k=int(cfg.generator.context_top_k),
+        prompt_style=str(cfg.generator.get("prompt_style", "verbose")),
     )
     predictions: list[str] = []
     answers_per_q: list[list[str]] = []
