@@ -17,6 +17,11 @@ crawl:
   jitter_seconds: 0.5
   max_pages: 1000
   obey_robots: true
+  # Keep only the most recent year-edition of each course code. UiA
+  # publishes 5+ near-identical pages per course (one per academic year);
+  # without this filter they all retrieve the same boilerplate paragraph
+  # and flood the top-k.
+  latest_year_only: true
 chunking:
   size: 512
   overlap: 64

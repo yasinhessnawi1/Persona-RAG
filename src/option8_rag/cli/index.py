@@ -25,6 +25,7 @@ from option8_rag.chunking.splitter import SentenceChunker
 from option8_rag.cli._common import resolve_paths, set_seed, setup_logging
 from option8_rag.embeddings.encoder import TextEncoder
 from option8_rag.index.chroma_index import ChromaIndex, IndexConfig
+from option8_rag.index.chunk_store import chunks_dump_path, write_chunks_jsonl
 from option8_rag.ingest.beir import BeirLoader
 from option8_rag.types import Chunk, Document
 
@@ -49,6 +50,12 @@ def main(cfg: DictConfig) -> None:
         chunk_overlap=int(cfg.corpus.chunking.overlap),
     )
     chunks: list[Chunk] = chunker.chunk_documents(documents)
+
+    # For UiA, repeat the synthesised course header at the head of every
+    # chunk so retrieval pulls back the title + leader + ECTS regardless
+    # of which paragraph the SentenceSplitter put them in.
+    if str(cfg.corpus.name) == "uia_ikt":
+        chunks = _prefix_uia_chunks_with_header(chunks, documents)
 
     encoder = TextEncoder(
         model_id=str(cfg.embedder.model_id),
@@ -83,6 +90,18 @@ def main(cfg: DictConfig) -> None:
         chunks=chunks,
         upsert_batch_size=upsert_batch_size,
     )
+
+    # Dump the chunked corpus to JSONL so BM25 / hybrid retrieval can
+    # rebuild a sparse index later without redoing chunking. One file
+    # per (corpus, chunk_size, chunk_overlap) — embedder-independent.
+    chunks_path = chunks_dump_path(
+        chroma_root=paths["chroma_root"],
+        corpus_name=str(cfg.corpus.name),
+        chunk_size=int(cfg.corpus.chunking.size),
+        chunk_overlap=int(cfg.corpus.chunking.overlap),
+    )
+    write_chunks_jsonl(chunks_path, chunks)
+    logger.info("chunks dumped to {p}", p=str(chunks_path))
 
     summary = {
         "corpus": cfg.corpus.name,
@@ -132,6 +151,7 @@ def _load_documents(cfg: DictConfig, paths: dict[str, Path]) -> Iterable[Documen
 def _load_uia_documents(out_dir: Path) -> list[Document]:
     text_dir = out_dir / "text"
     raw_dir = out_dir / "raw"
+    fields_dir = out_dir / "fields"
     if not text_dir.exists():
         raise FileNotFoundError(
             f"UiA text directory not found at {text_dir}; run the ingest step first.",
@@ -142,16 +162,91 @@ def _load_uia_documents(out_dir: Path) -> list[Document]:
         text = text_path.read_text()
         if not text.strip():
             continue
+
+        import contextlib
+
+        fields: dict[str, str] = {}
+        fields_path = fields_dir / f"{doc_id}.json"
+        if fields_path.exists():
+            with contextlib.suppress(json.JSONDecodeError):
+                fields = json.loads(fields_path.read_text())
+
+        # Prepend a synthesised header to the page body. The chunker
+        # then sees this header as the first sentence of the document,
+        # which the SentenceSplitter keeps inside the first chunk; the
+        # per-chunk header re-prefixing happens further down via the
+        # post-chunk hook (see _prefix_uia_chunks below). Embedding the
+        # header as part of the document text is also valuable on its
+        # own because every chunk's overlap window can include it.
+        header = ""
+        try:
+            from option8_rag.ingest.uia import synthesize_header
+
+            header = synthesize_header(fields)
+        except Exception:  # pragma: no cover — extraction is best-effort
+            pass
+
+        body = f"{header}\n\n{text}" if header else text
+
+        metadata: dict[str, object] = {"text_path": str(text_path)}
+        for k, v in fields.items():
+            if isinstance(v, str | int | float | bool):
+                metadata[k] = v
+
         documents.append(
             Document(
                 doc_id=doc_id,
-                text=text,
-                title="",
+                text=body,
+                title=str(fields.get("title", "")),
                 source=str(raw_dir / f"{doc_id}.html"),
-                metadata={"text_path": str(text_path)},
+                metadata=metadata,
             ),
         )
     return documents
+
+
+_UIA_HEADER_MARKER = "[course-header] "
+
+
+def _prefix_uia_chunks_with_header(
+    chunks: list[Chunk],
+    documents: list[Document],
+) -> list[Chunk]:
+    """Prepend each UiA chunk with its source document's [course-header] line.
+
+    The first chunk of each document already contains the header (it
+    was prepended to the document text before chunking). For subsequent
+    chunks the header has been lost, so we re-attach it. Idempotent:
+    chunks that already start with the marker are left alone.
+    """
+
+    from dataclasses import replace
+
+    header_by_doc: dict[str, str] = {}
+    for doc in documents:
+        text = doc.text or ""
+        if text.startswith(_UIA_HEADER_MARKER):
+            # Header is the first line of the document text.
+            first_line = text.split("\n", 1)[0]
+            header_by_doc[doc.doc_id] = first_line
+
+    out: list[Chunk] = []
+    rewritten = 0
+    for chunk in chunks:
+        header = header_by_doc.get(chunk.doc_id)
+        if not header or chunk.text.startswith(_UIA_HEADER_MARKER):
+            out.append(chunk)
+            continue
+        new_text = f"{header}\n\n{chunk.text}"
+        out.append(replace(chunk, text=new_text))
+        rewritten += 1
+    if rewritten:
+        logger.info(
+            "prefixed {n} UiA chunks with course header (out of {total})",
+            n=rewritten,
+            total=len(chunks),
+        )
+    return out
 
 
 def _resolve_upsert_batch_size(cfg: DictConfig) -> int:

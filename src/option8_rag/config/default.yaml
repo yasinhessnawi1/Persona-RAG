@@ -9,6 +9,7 @@ defaults:
   - corpus: beir_nq
   - embedder: bge_large
   - retriever: dense
+  - reranker: none
   - generator: llama31_8b
   - judge: gemma2_9b
   - run: local

@@ -97,7 +97,7 @@ def _eval_beir(*, cfg: DictConfig, paths: dict[str, Path]) -> dict[str, object]:
         }
 
     encoder, index = _build_dense_stack(cfg=cfg, paths=paths)
-    retriever = _build_retriever(cfg=cfg, encoder=encoder, index=index)
+    retriever = _build_retriever(cfg=cfg, encoder=encoder, index=index, paths=paths)
 
     top_k = int(cfg.retriever.top_k)
     logger.info("retrieving for {n} queries (top_k={k})", n=len(queries), k=top_k)
@@ -132,7 +132,7 @@ def _eval_uia(*, cfg: DictConfig, paths: dict[str, Path]) -> dict[str, object]:
     queries = [Query(query_id=str(i), text=str(item["question"])) for i, item in enumerate(items)]
 
     encoder, index = _build_dense_stack(cfg=cfg, paths=paths)
-    retriever = _build_retriever(cfg=cfg, encoder=encoder, index=index)
+    retriever = _build_retriever(cfg=cfg, encoder=encoder, index=index, paths=paths)
     retrieved = retriever.retrieve(queries, top_k=int(cfg.retriever.top_k))
 
     generator = GroundedGenerator(
@@ -241,26 +241,27 @@ def _build_retriever(
     cfg: DictConfig,
     encoder: TextEncoder,
     index: ChromaIndex,
+    paths: dict,
 ):
     name = str(cfg.retriever.name)
     if name == "dense":
-        return DenseRetriever(encoder=encoder, index=index, top_k=int(cfg.retriever.top_k))
-    if name == "bm25":
-        chunks = _materialise_chunks_for_bm25(cfg=cfg, index=index)
-        return Bm25Retriever(
+        retriever = DenseRetriever(encoder=encoder, index=index, top_k=int(cfg.retriever.top_k))
+    elif name == "bm25":
+        chunks = _materialise_chunks_for_bm25(cfg=cfg, paths=paths)
+        retriever = Bm25Retriever(
             chunks=chunks,
             top_k=int(cfg.retriever.top_k),
             lowercase=bool(cfg.retriever.lowercase),
         )
-    if name == "hybrid":
-        chunks = _materialise_chunks_for_bm25(cfg=cfg, index=index)
+    elif name == "hybrid":
+        chunks = _materialise_chunks_for_bm25(cfg=cfg, paths=paths)
         bm25 = Bm25Retriever(
             chunks=chunks,
             top_k=int(cfg.retriever.bm25_top_n),
             lowercase=bool(cfg.retriever.lowercase),
         )
         dense = DenseRetriever(encoder=encoder, index=index, top_k=int(cfg.retriever.dense_top_n))
-        return HybridRetriever(
+        retriever = HybridRetriever(
             dense=dense,
             bm25=bm25,
             top_k=int(cfg.retriever.top_k),
@@ -268,23 +269,49 @@ def _build_retriever(
             bm25_top_n=int(cfg.retriever.bm25_top_n),
             rrf_k=int(cfg.retriever.rrf_k),
         )
-    raise ValueError(f"unknown retriever {name!r}")
+    else:
+        raise ValueError(f"unknown retriever {name!r}")
+
+    # Optional cross-encoder reranker — wraps any base retriever.
+    if "reranker" in cfg and bool(cfg.reranker.get("enabled", False)):
+        from option8_rag.retrieve.rerank import CrossEncoderReranker, RerankRetriever
+
+        reranker = CrossEncoderReranker(
+            model_id=str(cfg.reranker.model_id),
+            device=str(cfg.reranker.get("device", "auto")),
+            batch_size=int(cfg.reranker.get("batch_size", 32)),
+        )
+        retriever = RerankRetriever(
+            base=retriever,
+            reranker=reranker,
+            base_top_n=int(cfg.reranker.base_top_n),
+            top_k=int(cfg.retriever.top_k),
+        )
+    return retriever
 
 
-def _materialise_chunks_for_bm25(*, cfg: DictConfig, index: ChromaIndex) -> list[Chunk]:
-    """Pull all chunks back from Chroma so BM25 can index them in memory.
+def _materialise_chunks_for_bm25(*, cfg: DictConfig, paths: dict) -> list[Chunk]:
+    """Load the chunk JSONL dump produced by the index step.
 
-    For very large corpora (BEIR/NQ full corpus) this round-trip is expensive
-    but tractable: chunk text + metadata only. The alternative is to keep a
-    parallel JSONL dump on disk; we may add that later if memory pressure
-    becomes an issue.
+    The BM25 / hybrid path needs the same chunked corpus the dense
+    index sees. We persist it as JSONL during the index step (see
+    `option8_rag.cli.index`); here we just read it back.
     """
 
-    raise NotImplementedError(
-        "BM25 / hybrid retrieval requires the chunked corpus persisted to "
-        "disk; bring this online once the BEIR/UiA chunk dump is wired in. "
-        "Use retriever=dense for now.",
+    from option8_rag.index.chunk_store import chunks_dump_path, read_chunks_jsonl
+
+    path = chunks_dump_path(
+        chroma_root=paths["chroma_root"],
+        corpus_name=str(cfg.corpus.name),
+        chunk_size=int(cfg.corpus.chunking.size),
+        chunk_overlap=int(cfg.corpus.chunking.overlap),
     )
+    chunks = read_chunks_jsonl(path)
+    if not chunks:
+        raise RuntimeError(
+            f"chunk dump at {path} is empty; rerun the index step for this corpus.",
+        )
+    return chunks
 
 
 if __name__ == "__main__":

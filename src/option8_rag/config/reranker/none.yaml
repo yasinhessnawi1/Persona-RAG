@@ -1,0 +1,3 @@
+# Reranker disabled — base retriever output is used directly.
+name: none
+enabled: false

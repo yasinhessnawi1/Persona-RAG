@@ -84,6 +84,7 @@ def _ingest_uia(*, cfg: DictConfig, paths: dict[str, Path]) -> None:
         jitter_seconds=float(cfg.corpus.crawl.jitter_seconds),
         max_pages=int(cfg.corpus.crawl.max_pages),
         obey_robots=bool(cfg.corpus.crawl.obey_robots),
+        latest_year_only=bool(cfg.corpus.crawl.get("latest_year_only", False)),
     )
     crawler = UiaCrawler(config=crawl_cfg, out_dir=out_dir)
 

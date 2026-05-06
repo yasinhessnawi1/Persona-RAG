@@ -1,0 +1,15 @@
+# MS-MARCO MiniLM-L-6-v2 cross-encoder reranker.
+#
+# Reranks the top base_top_n candidates from any base retriever
+# (dense / bm25 / hybrid) and keeps the top retriever.top_k. Cheap and
+# well-cited; the de-facto baseline for cross-encoder reranking on
+# BEIR-style benchmarks.
+name: minilm_l6
+enabled: true
+model_id: cross-encoder/ms-marco-MiniLM-L-6-v2
+device: auto
+batch_size: 64
+# How many candidates to draw from the base retriever before reranking.
+# 50 is the standard sweet spot — small enough to be fast, large enough
+# that the cross-encoder can recover items the base retriever ranked low.
+base_top_n: 50

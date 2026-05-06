@@ -44,6 +44,12 @@ class CrawlConfig:
         jitter_seconds: Maximum random jitter added to ``delay_seconds``.
         max_pages: Hard cap on number of pages fetched (safety belt).
         obey_robots: When true, evaluate robots.txt and skip disallowed URLs.
+        latest_year_only: When true, keep only the most recent year-edition
+            of each course. Without this, the corpus accumulates 5+ near-
+            identical copies per course (one per academic year), and dense
+            retrieval ends up returning the same boilerplate paragraph
+            five times in the top-k. Strongly recommended for the UiA
+            corpus.
     """
 
     sitemap_url: str
@@ -54,6 +60,7 @@ class CrawlConfig:
     jitter_seconds: float = 0.5
     max_pages: int = 1000
     obey_robots: bool = True
+    latest_year_only: bool = False
 
 
 class UiaCrawler:
@@ -70,6 +77,7 @@ class UiaCrawler:
         self.out_dir = ensure_dir(out_dir)
         self.raw_dir = ensure_dir(out_dir / "raw")
         self.text_dir = ensure_dir(out_dir / "text")
+        self.fields_dir = ensure_dir(out_dir / "fields")
         self.url_list_path = out_dir / "urls.json"
         self._rp_cache: dict[str, urllib.robotparser.RobotFileParser] = {}
 
@@ -93,6 +101,16 @@ class UiaCrawler:
         urls = _extract_sitemap_urls(page.body)
         pattern = re.compile(self.config.url_regex)
         matched = [u for u in urls if pattern.match(u)]
+
+        if self.config.latest_year_only:
+            before = len(matched)
+            matched = _keep_latest_year_per_course(matched)
+            logger.info(
+                "latest-year-only filter: {before} -> {after} URLs",
+                before=before,
+                after=len(matched),
+            )
+
         # Deduplicate while preserving order; extras appended last.
         seen: set[str] = set()
         ordered: list[str] = []
@@ -160,18 +178,28 @@ class UiaCrawler:
         doc_id = _doc_id_from_url(url)
         raw_path = self.raw_dir / f"{doc_id}.html"
         text_path = self.text_dir / f"{doc_id}.txt"
+        fields_path = self.fields_dir / f"{doc_id}.json"
         raw_path.write_bytes(page.body)
 
         title = _extract_title(page)
         text = _extract_text(page)
         text_path.write_text(text)
 
+        fields = extract_course_fields(text)
+        fields["url"] = url
+        fields_path.write_text(json.dumps(fields, indent=2))
+
         return Document(
             doc_id=doc_id,
             text=text,
             title=title,
             source=url,
-            metadata={"raw_path": str(raw_path), "text_path": str(text_path)},
+            metadata={
+                "raw_path": str(raw_path),
+                "text_path": str(text_path),
+                "fields_path": str(fields_path),
+                **{k: v for k, v in fields.items() if isinstance(v, str | int | float | bool)},
+            },
         )
 
     def _allowed(self, url: str) -> bool:
@@ -221,6 +249,135 @@ def _doc_id_from_url(url: str) -> str:
     if not path:
         path = parsed.netloc.replace(".", "_")
     return path.replace("/", "__").replace(".html", "").replace(".", "_")
+
+
+_COURSE_URL_RE = re.compile(
+    r"/english/studies/courses/(?P<year>\d{4})/(?P<season>autumn|spring)/"
+    r"(?P<code>[\w-]+)\.html$",
+)
+_SEASON_RANK = {"spring": 0, "autumn": 1}
+
+# Field labels we extract from a UiA course page. Each maps to the
+# canonical key we store under in the fields JSON. Matching is done on
+# whole, trimmed lines because the page format is "Label:\n<value>\n...".
+_FIELD_LABELS: tuple[tuple[str, str], ...] = (
+    ("ECTS Credits:", "ects"),
+    ("Responsible department:", "department"),
+    ("Course Leader:", "course_leader"),
+    ("Lecture Semester:", "lecture_semester"),
+    ("Teaching language:", "teaching_language"),
+    ("Duration:", "duration"),
+)
+
+_TITLE_RE = re.compile(
+    r"^(?P<code>IKT[\w-]+)\s+(?P<title>.+?)\s+\((?P<season>Autumn|Spring)\s+(?P<year>\d{4})\)\s*$",
+)
+
+
+def extract_course_fields(text: str) -> dict[str, str]:
+    """Pull the structured field block from a UiA course page.
+
+    Returns a dict with whatever subset of keys was present. Missing
+    fields are simply absent (not empty strings) so downstream callers
+    can use ``dict.get`` with a default.
+    """
+
+    fields: dict[str, str] = {}
+    lines = [line.rstrip() for line in text.split("\n")]
+
+    if lines:
+        m = _TITLE_RE.match(lines[0]) or (_TITLE_RE.match(lines[1]) if len(lines) > 1 else None)
+        if m:
+            fields["code"] = m.group("code")
+            fields["title"] = m.group("title")
+            fields["semester"] = m.group("season")
+            fields["year"] = m.group("year")
+
+    for i, line in enumerate(lines):
+        for label, key in _FIELD_LABELS:
+            if line.strip() == label and i + 1 < len(lines):
+                value = lines[i + 1].strip()
+                if value:
+                    fields[key] = value
+
+    # Best-effort examination type — appears further down with no label.
+    for keyword in (
+        "Portfolio examination",
+        "Portfolio assessment",
+        "Written examination",
+        "Oral examination",
+        "Home examination",
+        "Project assignment",
+    ):
+        if keyword in text:
+            fields["examination"] = keyword
+            break
+    return fields
+
+
+def synthesize_header(fields: dict[str, str]) -> str:
+    """Render a one-line header summarising a course page for chunk prefixing.
+
+    The output is a compact ``key=value`` line that exposes every fact a
+    typical lookup question can target (course code, title, leader,
+    ECTS, language, semester, examination). Prepending this to every
+    chunk of a page means retrieval can pull *any* chunk for *any* fact
+    question and the answer will be in the chunk text — no longer
+    dependent on which paragraph the SentenceSplitter put the leader
+    name into.
+    """
+
+    if not fields:
+        return ""
+    order = (
+        "code",
+        "title",
+        "course_leader",
+        "ects",
+        "teaching_language",
+        "semester",
+        "year",
+        "examination",
+        "duration",
+        "department",
+    )
+    parts = [f"{k}: {fields[k]}" for k in order if fields.get(k)]
+    if not parts:
+        return ""
+    return "[course-header] " + " | ".join(parts)
+
+
+def _keep_latest_year_per_course(urls: list[str]) -> list[str]:
+    """Collapse each (course-code) to its single most-recent edition.
+
+    The UiA sitemap exposes every yearly edition of every course (e.g.
+    IKT450 appears for 2020, 2021, 2022, 2023, 2024). Indexing all of
+    them produces 5+ near-identical chunks per course that flood the
+    top-k for every retrieval. This helper keeps only the latest year,
+    breaking ties in favour of autumn over spring (autumn is the
+    canonical first-half-of-the-academic-year semester).
+    """
+
+    best: dict[str, tuple[tuple[int, int], str]] = {}
+    pass_through: list[str] = []
+    for url in urls:
+        m = _COURSE_URL_RE.search(url)
+        if not m:
+            pass_through.append(url)
+            continue
+        year = int(m.group("year"))
+        season = m.group("season")
+        code = m.group("code").lower()
+        rank = (year, _SEASON_RANK.get(season, 0))
+        prev = best.get(code)
+        if prev is None or rank > prev[0]:
+            best[code] = (rank, url)
+
+    # Preserve original sitemap order for stable hashing of the resolved
+    # URL list. We sort the kept-URL set by the order they appeared.
+    kept_urls = {entry[1] for entry in best.values()}
+    ordered_kept = [u for u in urls if u in kept_urls]
+    return [*ordered_kept, *pass_through]
 
 
 def _extract_title(page) -> str:
