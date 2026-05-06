@@ -49,12 +49,30 @@ OVERALL_RUBRIC = (
 
 @dataclass(frozen=True, slots=True)
 class JudgeConfig:
-    """Decoder configuration for the LLM-as-judge."""
+    """Decoder configuration for the LLM-as-judge.
+
+    Attributes:
+        max_new_tokens: Tokens generated per rubric. Judge outputs an
+            integer; 16 is comfortable.
+        max_input_tokens: Hard cap on the prompt length after the chat
+            template is applied. Gemma-2's effective sliding-window cap
+            is 4096 — set this comfortably below to leave room for the
+            assistant header and the generated rating.
+        max_context_chunks: How many of the retrieved chunks to feed
+            into the judge prompt. The judge does not benefit from the
+            full top-10; 3 is plenty for a faithfulness check.
+        max_chunk_chars: Truncate each retrieved chunk to this many
+            characters before joining. Defends against pathological
+            long pages.
+    """
 
     max_new_tokens: int = 16
     temperature: float = 0.0
     top_p: float = 1.0
     do_sample: bool = False
+    max_input_tokens: int = 3500
+    max_context_chunks: int = 3
+    max_chunk_chars: int = 600
 
 
 _DEFAULT_JUDGE_CONFIG = JudgeConfig()
@@ -219,7 +237,11 @@ class GroundednessJudge:
         """Return a groundedness score for one (q, a, retrieved) triplet."""
 
         self._load()
-        ctx = _format_context(retrieved)
+        ctx = _format_context(
+            retrieved,
+            max_chunks=self.config.max_context_chunks,
+            max_chunk_chars=self.config.max_chunk_chars,
+        )
         claim = self._ask(question=question, answer=answer, context=ctx, rubric=CLAIM_RUBRIC)
         overall = self._ask(
             question=question,
@@ -264,7 +286,23 @@ class GroundednessJudge:
             add_generation_prompt=True,
             tokenize=True,
             return_tensors="pt",
-        ).to(self._model.device)
+        )
+
+        # Hard token-budget safety net. Gemma-2's effective sliding-window
+        # cap is 4096; we leave room for the assistant header and the
+        # generated rating. If the chat-template-rendered prompt is too
+        # long, drop the head of the prompt (which is mostly retrieved
+        # context) and keep the tail (rubric + the trailing instruction).
+        budget = max(64, int(self.config.max_input_tokens))
+        seq_len = inputs.shape[-1]
+        if seq_len > budget:
+            logger.warning(
+                "judge prompt {n} tokens > budget {b}; truncating head",
+                n=int(seq_len),
+                b=budget,
+            )
+            inputs = inputs[:, -budget:]
+        inputs = inputs.to(self._model.device)
 
         import torch
 
@@ -316,12 +354,23 @@ def _fuse(claim: float | None, overall: float | None) -> float | None:
     return sum(valid) / len(valid)
 
 
-def _format_context(retrieved: Sequence[RetrievedChunk]) -> str:
+def _format_context(
+    retrieved: Sequence[RetrievedChunk],
+    *,
+    max_chunks: int = 3,
+    max_chunk_chars: int = 600,
+) -> str:
+    """Render retrieved chunks for the judge prompt with budget controls."""
+
     if not retrieved:
         return "(no context passages)"
+    sliced = list(retrieved)[: max(1, max_chunks)]
     blocks: list[str] = []
-    for i, item in enumerate(retrieved, start=1):
-        blocks.append(f"[c{i}] (chunk_id={item.chunk.chunk_id})\n{item.chunk.text}")
+    for i, item in enumerate(sliced, start=1):
+        text = item.chunk.text or ""
+        if len(text) > max_chunk_chars:
+            text = text[:max_chunk_chars].rstrip() + " ..."
+        blocks.append(f"[c{i}] (chunk_id={item.chunk.chunk_id})\n{text}")
     return "\n\n".join(blocks)
 
 
