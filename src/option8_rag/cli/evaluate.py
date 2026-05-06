@@ -157,6 +157,13 @@ def _eval_uia(*, cfg: DictConfig, paths: dict[str, Path]) -> dict[str, object]:
 
     qa_scores = aggregate_qa(predictions=predictions, references=answers_per_q)
 
+    # Free the generator's GPU footprint before loading the judge.
+    # Without this, both 8B+ models try to live on the V100 and accelerate
+    # silently CPU-offloads the second one (visible as a "Some parameters
+    # are on the meta device because they were offloaded to the cpu"
+    # warning), which breaks generation under torch.compile / dynamo.
+    generator.unload()
+
     grounded_scores: list[float] = []
     if not bool(cfg.run.smoke):
         from option8_rag.evaluate.groundedness import GroundednessJudge, JudgeConfig

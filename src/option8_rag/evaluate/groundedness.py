@@ -160,10 +160,43 @@ class GroundednessJudge:
             model = model.to("cpu")
         model.eval()
 
+        # Pin generation_config so the model's shipped defaults
+        # (Gemma-2-9b ships do_sample=True, temperature=0.6, top_p=0.9)
+        # cannot bleed into our greedy-decoding path.
+        try:
+            from transformers import GenerationConfig as HfGenerationConfig
+
+            model.generation_config = HfGenerationConfig(
+                do_sample=self.config.do_sample,
+                temperature=self.config.temperature if self.config.do_sample else None,
+                top_p=self.config.top_p if self.config.do_sample else None,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+        except Exception:
+            logger.warning("could not set judge generation_config; relying on model default")
+
         self._tokenizer = tokenizer
         self._model = model
         if device == "cuda":
             torch.cuda.empty_cache()
+
+    def unload(self) -> None:
+        """Release the judge model and its GPU memory."""
+
+        import gc
+
+        self._tokenizer = None
+        self._model = None
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except ImportError:  # pragma: no cover
+            pass
 
     def _resolve_device(self) -> str:
         if self.device != "auto":
@@ -246,6 +279,17 @@ class GroundednessJudge:
         if self.config.do_sample:
             gen_kwargs["temperature"] = self.config.temperature
             gen_kwargs["top_p"] = self.config.top_p
+
+        # Disable dynamo: it's incompatible with accelerate's CPU-offload
+        # hooks (raises torch._dynamo.exc.Unsupported on Gemma-2 under
+        # offload) and we get nothing from compiled inference for ~16
+        # output tokens.
+        try:
+            import torch._dynamo as torch_dynamo
+
+            torch_dynamo.config.suppress_errors = True
+        except ImportError:  # pragma: no cover
+            pass
 
         with torch.inference_mode():
             output_ids = self._model.generate(inputs, **gen_kwargs)

@@ -150,11 +150,47 @@ class GroundedGenerator:
             model = model.to("cpu")
         model.eval()
 
+        # Some HF model defaults ship with `do_sample=True` baked into
+        # generation_config.json (Llama-3.1 ships temperature=0.6,
+        # top_p=0.9). Even when we pass `do_sample=False` to .generate()
+        # the model's own config has been observed to bleed into the
+        # decoding path on certain transformers releases. Pin the config
+        # explicitly to remove the ambiguity.
+        try:
+            from transformers import GenerationConfig as HfGenerationConfig
+
+            model.generation_config = HfGenerationConfig(
+                do_sample=self.generation.do_sample,
+                temperature=self.generation.temperature if self.generation.do_sample else None,
+                top_p=self.generation.top_p if self.generation.do_sample else None,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+        except Exception:
+            logger.warning("could not set generation_config; relying on model default")
+
         self._tokenizer = tokenizer
         self._model = model
         # Light sanity: allocate device cache.
         if device == "cuda":
             torch.cuda.empty_cache()
+
+    def unload(self) -> None:
+        """Release the model and its GPU memory so the next stage has room."""
+
+        import gc
+
+        self._tokenizer = None
+        self._model = None
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except ImportError:  # pragma: no cover
+            pass
 
     def _resolve_device(self) -> str:
         if self.device != "auto":
@@ -201,6 +237,19 @@ class GroundedGenerator:
         if self.generation.do_sample:
             gen_kwargs["temperature"] = self.generation.temperature
             gen_kwargs["top_p"] = self.generation.top_p
+
+        # torch.compile / dynamo is incompatible with accelerate's
+        # CPU-offload pre-forward hooks (we hit
+        # `torch._dynamo.exc.Unsupported: call_method UserFunctionVariable
+        # _compiled_fn` on Gemma-2-9b under offload). Disable dynamo for
+        # generation; we don't benefit from compiled inference here
+        # (16-token judge calls, 512-token answers).
+        try:
+            import torch._dynamo as torch_dynamo
+
+            torch_dynamo.config.suppress_errors = True
+        except ImportError:  # pragma: no cover
+            pass
 
         with torch.inference_mode():
             output_ids = self._model.generate(inputs, **gen_kwargs)
