@@ -1,0 +1,12 @@
+defaults:
+  - freet: adapter
+  - _self_
+
+build_corpus: false
+
+report_dir: results/freet_adapter/${now:%Y%m%d_%H%M%S}
+
+hydra:
+  run:
+    dir: ${report_dir}
+  output_subdir: hydra

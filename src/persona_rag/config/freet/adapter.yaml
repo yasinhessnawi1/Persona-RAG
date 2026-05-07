@@ -1,0 +1,33 @@
+# Free-Transformer adapter on a frozen pretrained backbone.
+# Backbone weights are loaded in 4-bit and frozen; only the encoder + persona
+# head + z_to_residual are trained.
+
+# Corpus (built once via scripts/train_free_transformer.py with build_corpus=true).
+corpus_dir: ./benchmarks_data/freet_corpus
+seed: 42
+
+# Backbone.
+backbone_model_id: google/gemma-2-9b-it
+seq_len: 1024
+
+# Adapter shape. Encoder mlp_ratio is matched to the paper; inject layer
+# defaults to backbone L // 2 (e.g. 21 of 42 for Gemma-2-9B).
+n_personas: 3
+encoder_mlp_ratio: 4
+inject_after_layer: null
+persona_loss_weight: 1.0
+
+# Optimisation.
+batch_size: 2
+grad_accum: 16
+lr: 1.0e-4
+weight_decay: 0.05
+warmup_steps: 200
+max_steps: 4000
+grad_clip: 1.0
+fp16: true
+
+# Logging cadence.
+log_every: 25
+eval_every: 500
+save_every: 1000

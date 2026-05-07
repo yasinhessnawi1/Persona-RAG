@@ -1,0 +1,17 @@
+defaults:
+  - freet: adapter
+  - _self_
+
+ckpt: ???
+
+max_eval: 600
+probe_train_fraction: 0.7
+n_shuffles: 10
+n_random_repeats: 10
+
+report_dir: results/freet_adapter_validation/${now:%Y%m%d_%H%M%S}
+
+hydra:
+  run:
+    dir: ${report_dir}
+  output_subdir: hydra
