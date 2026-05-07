@@ -38,10 +38,8 @@ def load_adapter_checkpoint(
     adapter.encoder.load_state_dict(state["encoder"])
     adapter.persona_head.load_state_dict(state["persona_head"])
     adapter.z_to_residual.load_state_dict(state["z_to_residual"])
-    if device.type == "cuda":
-        adapter.encoder = adapter.encoder.to(torch.float16)
-        adapter.persona_head = adapter.persona_head.to(torch.float16)
-        adapter.z_to_residual = adapter.z_to_residual.to(torch.float16)
+    # Keep the trainable modules in fp32 for inference too — matches training
+    # dtype, avoids any cross-dtype hook surprises with the 4-bit backbone.
     adapter.eval()
     return adapter, raw, tokenizer
 

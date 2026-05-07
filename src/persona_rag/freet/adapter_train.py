@@ -153,11 +153,9 @@ def train(cfg: AdapterTrainConfig) -> Path:
         inject_after_layer=cfg.inject_after_layer,
     )
     adapter = FreetAdapter(backbone, adapter_cfg).to(device)
-    if cfg.fp16:
-        # Cast only the new modules to fp16; backbone is already 4-bit.
-        adapter.encoder = adapter.encoder.to(torch.float16)
-        adapter.persona_head = adapter.persona_head.to(torch.float16)
-        adapter.z_to_residual = adapter.z_to_residual.to(torch.float16)
+    # IMPORTANT: keep the trainable modules in fp32. AMP autocasts the forward
+    # to fp16 inside `torch.cuda.amp.autocast`, but master weights and grads
+    # must stay fp32 — `GradScaler.unscale_` refuses fp16 grads.
 
     n_train = adapter.num_trainable_parameters()
     logger.info(
