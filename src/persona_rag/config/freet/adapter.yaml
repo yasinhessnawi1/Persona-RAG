@@ -17,6 +17,12 @@ encoder_mlp_ratio: 4
 inject_after_layer: null
 persona_loss_weight: 1.0
 
+# Optional LoRA on K/V projections of the modulated block (option b).
+# 0 = no LoRA (adapter only). 8 / 16 / 32 are reasonable values for
+# the consumer-block read-of-R question.
+lora_rank: 0
+lora_alpha: 16.0
+
 # Optimisation.
 batch_size: 2
 grad_accum: 16

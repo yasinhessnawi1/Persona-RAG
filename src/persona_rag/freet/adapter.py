@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch import nn
@@ -44,6 +45,14 @@ class FreetAdapterConfig:
     inject_after_layer: int | None = None
     """Index of the backbone block AFTER WHICH R is injected (i.e. R is added
     to the input of block ``inject_after_layer + 1``). Defaults to L // 2."""
+    lora_rank: int = 0
+    """Rank of LoRA adapters on the K and V projections of the modulated block
+    (block ``inject_after_layer + 1``). 0 disables LoRA (option a). Non-zero
+    enables option b — gives the consumer block ~`2 * 2 * dim * lora_rank`
+    trainable params so it can learn to attend differently when R is non-zero.
+    """
+    lora_alpha: float = 16.0
+    """LoRA scaling factor; effective scale is ``lora_alpha / lora_rank``."""
 
 
 # --------------------------------------------------------------------------- #
@@ -90,6 +99,72 @@ class _ResidualInjector:
             kwargs = {**kwargs, "hidden_states": kwargs["hidden_states"] + r.to(kwargs["hidden_states"].dtype)}
             return args, kwargs
         return args, kwargs
+
+
+# --------------------------------------------------------------------------- #
+# LoRA on a single Linear (works with bnb.nn.Linear4bit)                      #
+# --------------------------------------------------------------------------- #
+
+
+class LoRAResidual(nn.Module):
+    """LoRA(A, B): output += (x @ A.T) @ B.T * scaling.
+
+    Attaches via a forward-hook on the target Linear. The target's output is
+    augmented by the LoRA residual; the target's own weights remain frozen
+    (and 4-bit, in our use case). A is initialised normal, B is zero, so
+    the residual starts at exactly zero and the backbone's forward pass is
+    unchanged at step 0.
+    """
+
+    def __init__(self, in_features: int, out_features: int, rank: int, alpha: float) -> None:
+        super().__init__()
+        if rank <= 0:
+            raise ValueError("rank must be positive")
+        self.rank = rank
+        self.scaling = alpha / rank
+        # Standard LoRA init: A normal, B zero. fp32 for safe AMP.
+        self.lora_A = nn.Parameter(torch.empty(rank, in_features))
+        self.lora_B = nn.Parameter(torch.zeros(out_features, rank))
+        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
+
+        # Saved last input for the hook closure.
+        self._last_input: torch.Tensor | None = None
+        self._target: nn.Module | None = None
+
+    def _pre_hook(
+        self,
+        module: nn.Module,
+        args: tuple,
+    ) -> None:
+        if not args or not isinstance(args[0], torch.Tensor):
+            self._last_input = None
+            return
+        self._last_input = args[0]
+
+    def _post_hook(
+        self,
+        module: nn.Module,
+        args: tuple,
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        if self._last_input is None or not isinstance(output, torch.Tensor):
+            return output
+        x = self._last_input
+        # Promote LoRA matmul to the output dtype to match what the backbone
+        # returns (typically fp16 in autocast / 4-bit-compute), then cast back.
+        out_dtype = output.dtype
+        a = self.lora_A.to(out_dtype)
+        b = self.lora_B.to(out_dtype)
+        residual = (x @ a.T) @ b.T * self.scaling
+        self._last_input = None
+        return output + residual
+
+    def attach(self, target: nn.Module) -> tuple[Any, Any]:
+        """Register hooks; return their handles for later removal."""
+        self._target = target
+        pre = target.register_forward_pre_hook(self._pre_hook)
+        post = target.register_forward_hook(self._post_hook)
+        return pre, post
 
 
 # --------------------------------------------------------------------------- #
@@ -211,6 +286,39 @@ class FreetAdapter(nn.Module):
         self._capture_handle = layers[inject_idx].register_forward_hook(
             self._capture_hook
         )
+
+        # Optional LoRA on K and V projections of the modulated block. The
+        # consumer block sees x_half + R as input; LoRA(K) and LoRA(V) give
+        # the block trainable parameters at exactly the spot where R lands,
+        # so it can learn to attend differently when R != 0.
+        self.lora_k: LoRAResidual | None = None
+        self.lora_v: LoRAResidual | None = None
+        self._lora_handles: list[Any] = []
+        if cfg.lora_rank > 0:
+            consumer = layers[inject_idx + 1]
+            attn = getattr(consumer, "self_attn", None)
+            if attn is None:
+                raise ValueError(
+                    "could not find consumer block .self_attn — LoRA wiring "
+                    "expects a Llama/Gemma/Qwen-style attention module"
+                )
+            k_proj = getattr(attn, "k_proj", None)
+            v_proj = getattr(attn, "v_proj", None)
+            if k_proj is None or v_proj is None:
+                raise ValueError(
+                    "attention module is missing k_proj / v_proj — LoRA wiring "
+                    "expects standard Q/K/V projections"
+                )
+            # Use weight shape rather than .in_features (bnb.nn.Linear4bit
+            # exposes .weight but its in_features attr is sometimes absent).
+            k_in = k_proj.weight.shape[1]
+            k_out = k_proj.weight.shape[0]
+            v_in = v_proj.weight.shape[1]
+            v_out = v_proj.weight.shape[0]
+            self.lora_k = LoRAResidual(k_in, k_out, cfg.lora_rank, cfg.lora_alpha)
+            self.lora_v = LoRAResidual(v_in, v_out, cfg.lora_rank, cfg.lora_alpha)
+            self._lora_handles.extend(self.lora_k.attach(k_proj))
+            self._lora_handles.extend(self.lora_v.attach(v_proj))
 
         # RoPE for the encoder's non-causal attention. Must match the encoder
         # config's head_dim (which we set to backbone's). Built on demand on
@@ -409,3 +517,6 @@ class FreetAdapter(nn.Module):
         """Detach the forward hooks. Call when discarding the adapter."""
         self._hook_handle.remove()
         self._capture_handle.remove()
+        for h in self._lora_handles:
+            h.remove()
+        self._lora_handles.clear()

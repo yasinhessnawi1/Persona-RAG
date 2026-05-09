@@ -38,6 +38,10 @@ def load_adapter_checkpoint(
     adapter.encoder.load_state_dict(state["encoder"])
     adapter.persona_head.load_state_dict(state["persona_head"])
     adapter.z_to_residual.load_state_dict(state["z_to_residual"])
+    if "lora_k" in state and adapter.lora_k is not None:
+        adapter.lora_k.load_state_dict(state["lora_k"])
+    if "lora_v" in state and adapter.lora_v is not None:
+        adapter.lora_v.load_state_dict(state["lora_v"])
     # Keep the trainable modules in fp32 for inference too — matches training
     # dtype, avoids any cross-dtype hook surprises with the 4-bit backbone.
     adapter.eval()

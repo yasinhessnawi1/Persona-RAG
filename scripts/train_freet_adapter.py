@@ -51,6 +51,8 @@ def main(cfg: DictConfig) -> int:
         encoder_mlp_ratio=int(cfg.freet.encoder_mlp_ratio),
         inject_after_layer=cfg.freet.inject_after_layer,
         persona_loss_weight=float(cfg.freet.persona_loss_weight),
+        lora_rank=int(cfg.freet.get("lora_rank", 0)),
+        lora_alpha=float(cfg.freet.get("lora_alpha", 16.0)),
         batch_size=int(cfg.freet.batch_size),
         grad_accum=int(cfg.freet.grad_accum),
         lr=float(cfg.freet.lr),

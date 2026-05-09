@@ -45,6 +45,11 @@ class AdapterTrainConfig:
     encoder_mlp_ratio: int = 4
     inject_after_layer: int | None = None
     persona_loss_weight: float = 1.0
+    lora_rank: int = 0
+    """LoRA rank on K/V projections of the modulated block. 0 = adapter-only
+    (option a). Non-zero = option b: gives the consumer block trainable
+    parameters at the injection site so it can learn to read R."""
+    lora_alpha: float = 16.0
     # Optim.
     batch_size: int = 2
     grad_accum: int = 16
@@ -151,6 +156,8 @@ def train(cfg: AdapterTrainConfig) -> Path:
         n_personas=n_personas,
         encoder_mlp_ratio=cfg.encoder_mlp_ratio,
         inject_after_layer=cfg.inject_after_layer,
+        lora_rank=cfg.lora_rank,
+        lora_alpha=cfg.lora_alpha,
     )
     adapter = FreetAdapter(backbone, adapter_cfg).to(device)
     # IMPORTANT: keep the trainable modules in fp32. AMP autocasts the forward
@@ -184,11 +191,15 @@ def train(cfg: AdapterTrainConfig) -> Path:
         path = out_dir / f"{tag}.pt"
         # Save ONLY the trainable modules + the persona id map. Backbone is
         # not serialised — it can be re-loaded from HF by id at validate time.
-        state = {
+        state: dict[str, dict[str, torch.Tensor]] = {
             "encoder": adapter.encoder.state_dict(),
             "persona_head": adapter.persona_head.state_dict(),
             "z_to_residual": adapter.z_to_residual.state_dict(),
         }
+        if adapter.lora_k is not None:
+            state["lora_k"] = adapter.lora_k.state_dict()
+        if adapter.lora_v is not None:
+            state["lora_v"] = adapter.lora_v.state_dict()
         torch.save(
             {
                 "step": step,
