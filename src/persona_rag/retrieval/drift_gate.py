@@ -23,7 +23,7 @@ double-counting the same model's preferences in both gating and ranking).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from loguru import logger
 
@@ -35,6 +35,7 @@ from persona_rag.retrieval.templates import (
     parse_drift_gate_response,
     render_drift_gate_prompt,
 )
+from persona_rag.retrieval.templates.drift_gate import DriftFlag
 from persona_rag.schema.persona import Persona
 
 
@@ -146,4 +147,192 @@ class LlmJudgeDriftGate:
         return None
 
 
-__all__ = ["LlmJudgeDriftGate"]
+# ---------------------------------------------------------------------------
+# Oracle gate (table-driven, no LLM call)
+# ---------------------------------------------------------------------------
+
+
+# Bumped on any change to the oracle's firing rule. Mirrors the LLM gate's
+# template-version field so per-turn metadata stays interpretable across runs.
+ORACLE_GATE_TEMPLATE_VERSION = "oracle_v1"
+
+
+class _OracleJudgeStub:
+    """Object exposing ``.name`` so ``DriftGatedMechanism`` reads ``oracle``.
+
+    The mechanism's ``_cheap_path`` / ``_gated_path`` populate
+    ``gate_judge_model`` from ``self.drift_gate.judge.name``. The oracle
+    issues no LLM call, but the field still needs a stable string for
+    cost-tracking + diagnostic readouts.
+    """
+
+    name = "oracle"
+
+
+@dataclass
+class OracleDriftGate:
+    """Probe-aware oracle gate. No LLM call.
+
+    The gate's decision for any ``(conversation_id, turn_index)`` pair is
+    pre-computed from the probe metadata: fire on ``probe_turn_index`` and
+    ``probe_turn_index + 1`` for Type-A (``self_fact_challenge``) and
+    Type-B (``counterfactual``) probes; never fire on Type-C
+    (``constraint_bait``) — Type-C tests constraint deflection, not drift
+    recovery.
+
+    The gate is stateful: ``ProbeRunner`` (or its subclass) advances
+    ``current_conversation_id`` + ``current_turn_index`` before each call
+    to the host mechanism's ``respond(...)``, so ``check(...)`` can read
+    the cursor and emit the right ``DriftCheck`` without needing the
+    benchmark schema piped through every layer.
+
+    The exposed attribute names (``judge``, ``confidence_threshold``,
+    ``name``) mirror :class:`LlmJudgeDriftGate` so
+    :class:`DriftGatedMechanism` reads the right metadata fields without
+    branching on gate type.
+    """
+
+    # Map ``conversation_id -> {turn_index: should_gate}``.  The runner
+    # populates this once per replay() call from the loaded benchmark
+    # conversations; the gate only reads it.
+    decisions: dict[str, dict[int, bool]] = field(default_factory=dict)
+
+    # Per-turn diagnostic strings the gate logs into ``rationale``.
+    rationales: dict[str, dict[int, str]] = field(default_factory=dict)
+
+    # Cursor advanced by the runner before each ``respond(...)`` call.
+    current_conversation_id: str | None = None
+    current_turn_index: int | None = None
+
+    # Sentinel values mirroring the LLM-gate's metadata schema.
+    confidence_threshold: float = 1.0  # not meaningful for the oracle
+    judge: _OracleJudgeStub = field(default_factory=_OracleJudgeStub)
+
+    @property
+    def name(self) -> str:
+        return f"oracle_drift_gate({ORACLE_GATE_TEMPLATE_VERSION})"
+
+    def set_cursor(self, conversation_id: str, turn_index: int) -> None:
+        """Advance the cursor before ``respond(...)``. Called by the runner."""
+        self.current_conversation_id = conversation_id
+        self.current_turn_index = turn_index
+
+    def register_conversation(
+        self,
+        *,
+        conversation_id: str,
+        n_turns: int,
+        probe_type: str | None,
+        probe_turn_index: int | None,
+    ) -> None:
+        """Pre-compute the per-turn ``should_gate`` table for one conversation.
+
+        Type A (``self_fact_challenge``) and Type B (``counterfactual``)
+        probes fire the oracle on the probe turn and the immediate
+        follow-up (when in range). Type C (``constraint_bait``) and
+        no-probe conversations leave every turn at ``should_gate=False``.
+        """
+        per_turn: dict[int, bool] = {ix: False for ix in range(n_turns)}
+        per_rat: dict[int, str] = {ix: "" for ix in range(n_turns)}
+
+        if probe_type in {"self_fact_challenge", "counterfactual"} and probe_turn_index is not None:
+            for offset in (0, 1):
+                ix = probe_turn_index + offset
+                if 0 <= ix < n_turns:
+                    per_turn[ix] = True
+                    label = "probe-turn" if offset == 0 else "follow-up"
+                    per_rat[ix] = (
+                        f"oracle: probe_type={probe_type} "
+                        f"probe_turn={probe_turn_index} "
+                        f"current_turn={ix} ({label})"
+                    )
+
+        for ix in range(n_turns):
+            if not per_turn[ix]:
+                if probe_type == "constraint_bait":
+                    per_rat[ix] = (
+                        f"oracle: probe_type=constraint_bait "
+                        f"probe_turn={probe_turn_index} current_turn={ix} "
+                        "(Type-C never fires)"
+                    )
+                elif probe_type is None:
+                    per_rat[ix] = "oracle: no probe — cheap path"
+                else:
+                    per_rat[ix] = (
+                        f"oracle: probe_type={probe_type} "
+                        f"probe_turn={probe_turn_index} current_turn={ix} "
+                        "(outside probe-window)"
+                    )
+
+        self.decisions[conversation_id] = per_turn
+        self.rationales[conversation_id] = per_rat
+
+    def check(
+        self,
+        *,
+        persona: Persona,
+        query: str,
+        history: list[Turn] | None = None,
+    ) -> DriftCheck:
+        """Look up the pre-computed decision for the runner's current cursor.
+
+        ``persona``, ``query``, and ``history`` are accepted only to keep
+        the signature compatible with :class:`LlmJudgeDriftGate` — the
+        oracle ignores them (decision rests entirely on probe metadata).
+        ``DriftCheck`` is populated so ``DriftGatedMechanism``'s metadata
+        flow and the harness's ``DriftQualityMetric`` see the same field
+        shape they get from the LLM gate.
+        """
+        del persona, query, history  # unused; cursor-driven decision
+
+        if self.current_conversation_id is None or self.current_turn_index is None:
+            # Defensive default. The runner is responsible for advancing the
+            # cursor; an unset cursor means the gate fell out of sync.
+            logger.warning("oracle_drift_gate: cursor unset — defaulting to should_gate=False")
+            return DriftCheck(
+                flag="ok",
+                confidence=0.0,
+                rationale="oracle: cursor unset",
+                should_gate=False,
+                raw_response="",
+                template_version=ORACLE_GATE_TEMPLATE_VERSION,
+            )
+
+        conv = self.decisions.get(self.current_conversation_id)
+        if conv is None:
+            logger.warning(
+                "oracle_drift_gate: conversation_id={} not registered — should_gate=False",
+                self.current_conversation_id,
+            )
+            return DriftCheck(
+                flag="ok",
+                confidence=0.0,
+                rationale=f"oracle: conversation {self.current_conversation_id} not registered",
+                should_gate=False,
+                raw_response="",
+                template_version=ORACLE_GATE_TEMPLATE_VERSION,
+            )
+
+        should_gate = bool(conv.get(self.current_turn_index, False))
+        rationale = self.rationales.get(self.current_conversation_id, {}).get(
+            self.current_turn_index, ""
+        )
+        flag: DriftFlag = "drift" if should_gate else "ok"
+        confidence = 1.0 if should_gate else 0.0
+        logger.info(
+            "oracle_drift_gate: conv={} turn={} should_gate={}",
+            self.current_conversation_id,
+            self.current_turn_index,
+            should_gate,
+        )
+        return DriftCheck(
+            flag=flag,
+            confidence=confidence,
+            rationale=rationale,
+            should_gate=should_gate,
+            raw_response="",
+            template_version=ORACLE_GATE_TEMPLATE_VERSION,
+        )
+
+
+__all__ = ["ORACLE_GATE_TEMPLATE_VERSION", "LlmJudgeDriftGate", "OracleDriftGate"]

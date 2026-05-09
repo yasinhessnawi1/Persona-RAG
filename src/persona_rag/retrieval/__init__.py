@@ -21,7 +21,11 @@ from persona_rag.retrieval.character_rm import (
     CharacterScorer,
     FakeCharacterRMScorer,
 )
-from persona_rag.retrieval.drift_gate import LlmJudgeDriftGate
+from persona_rag.retrieval.drift_gate import (
+    ORACLE_GATE_TEMPLATE_VERSION,
+    LlmJudgeDriftGate,
+    OracleDriftGate,
+)
 from persona_rag.retrieval.fusion import (
     DEFAULT_RRF_K,
     reciprocal_rank_fusion,
@@ -70,6 +74,7 @@ __all__ = [
     "DEFAULT_HYBRID_WEIGHTS",
     "DEFAULT_RRF_K",
     "DRIFT_GATE_TEMPLATE_VERSION",
+    "ORACLE_GATE_TEMPLATE_VERSION",
     "CharacterRMScorer",
     "CharacterScorer",
     "DriftCheck",
@@ -80,6 +85,7 @@ __all__ = [
     "FewShotTurn",
     "HybridRanker",
     "LlmJudgeDriftGate",
+    "OracleDriftGate",
     "PromptPersonaRAG",
     "RankedCandidate",
     "Response",

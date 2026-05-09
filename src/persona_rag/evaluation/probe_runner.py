@@ -294,4 +294,194 @@ class ProbeRunner:
         return transcripts, injection_logs
 
 
-__all__ = ["ProbeInjectionLog", "ProbeRunner"]
+@dataclass
+class OracleProbeRunner(ProbeRunner):
+    """``ProbeRunner`` that advances an :class:`OracleDriftGate` per turn.
+
+    Use only with mechanisms whose gate is an :class:`OracleDriftGate`. The
+    runner registers each conversation's per-turn ``should_gate`` table
+    with the gate before replay starts, then advances the gate's cursor
+    before each ``pipeline.respond(...)`` call so the oracle reads the
+    decision for the right ``(conversation_id, turn_index)`` pair.
+
+    The base ``replay()`` is reimplemented rather than monkey-patched
+    because the cursor advance must happen between probe injection and
+    ``pipeline.respond(...)``. The body mirrors the parent's loop
+    line-for-line except for the registration up-front and the
+    ``set_cursor(...)`` call before each turn.
+    """
+
+    # Set after construction by the sweep driver. Typed as ``Any`` here to
+    # avoid a circular import on ``persona_rag.retrieval.drift_gate`` —
+    # the sweep driver passes a real ``OracleDriftGate``.
+    oracle_gate: Any | None = None
+
+    def replay(
+        self,
+        persona: Persona,
+        conversations: list[BenchmarkConversation],
+    ) -> tuple[list[EvalConversation], list[ProbeInjectionLog]]:
+        """Generate one ``EvalConversation`` per input. Return (transcripts, logs).
+
+        Pre-registers every conversation's per-turn ``should_gate`` table
+        with the oracle gate; then runs the same probe-injection /
+        respond / eject loop the parent does, with cursor advancement
+        between injection and ``respond(...)`` so the oracle's decision
+        is keyed on the correct (conversation_id, turn_index) pair.
+        """
+        if self.oracle_gate is None:
+            raise RuntimeError(
+                "OracleProbeRunner.replay called without oracle_gate; "
+                "set OracleProbeRunner(..., oracle_gate=<OracleDriftGate>) "
+                "before invoking replay."
+            )
+
+        from persona_rag.retrieval.base import Turn  # local import to avoid cycle
+        from persona_rag.stores.knowledge_store import KnowledgeDocument
+
+        # 1. Pre-register every conversation's per-turn decision table.
+        for conv in conversations:
+            self.oracle_gate.register_conversation(
+                conversation_id=conv.conversation_id,
+                n_turns=len(conv.user_turns),
+                probe_type=(conv.probe.probe_type if conv.probe is not None else None),
+                probe_turn_index=(conv.probe.probe_turn_index if conv.probe is not None else None),
+            )
+
+        transcripts: list[EvalConversation] = []
+        injection_logs: list[ProbeInjectionLog] = []
+        for conv in conversations:
+            history: list[Any] = []
+            scored_turns: list[ScoredTurn] = []
+            per_turn_meta: list[dict[str, Any]] = []
+            for turn_ix, user_text in enumerate(conv.user_turns):
+                injected_doc_id: str | None = None
+                injection_log: ProbeInjectionLog | None = None
+                if (
+                    conv.probe is not None
+                    and conv.probe.probe_turn_index == turn_ix
+                    and conv.probe.probe_type == "counterfactual"
+                    and conv.probe.injected_chunk_id is not None
+                ):
+                    chunk = self.chunks.get(conv.probe.injected_chunk_id)
+                    if chunk is None:
+                        raise KeyError(
+                            f"probe {conv.probe.probe_id!r}: chunk "
+                            f"{conv.probe.injected_chunk_id!r} not loaded; "
+                            "pass it via ProbeRunner.chunks"
+                        )
+                    if self.knowledge_store is None:
+                        raise RuntimeError(
+                            f"probe {conv.probe.probe_id!r}: counterfactual "
+                            "injection needs a knowledge_store"
+                        )
+                    injected_doc_id = chunk.chunk_id
+                    self.knowledge_store.add_documents(
+                        [
+                            KnowledgeDocument(
+                                doc_id=chunk.chunk_id,
+                                text=chunk.text,
+                                source=chunk.source_label,
+                                metadata={
+                                    "injected_for_probe": conv.probe.probe_id,
+                                    "contradicts": chunk.contradicts,
+                                },
+                            )
+                        ]
+                    )
+                    injection_log = ProbeInjectionLog(
+                        conversation_id=conv.conversation_id,
+                        probe_id=conv.probe.probe_id,
+                        probe_type=conv.probe.probe_type,
+                        probe_turn_index=turn_ix,
+                        injected_chunk_id=chunk.chunk_id,
+                    )
+
+                threaded_history = _trim_history_to_budget(
+                    history, max_tokens=self.max_history_tokens
+                )
+
+                # 2. Advance the oracle's cursor right before respond(...).
+                self.oracle_gate.set_cursor(
+                    conversation_id=conv.conversation_id, turn_index=turn_ix
+                )
+
+                try:
+                    response = self.pipeline.respond(
+                        user_text,
+                        persona,
+                        history=threaded_history,
+                        seed=self.seed,
+                    )
+                finally:
+                    if injected_doc_id is not None and self.knowledge_store is not None:
+                        self.knowledge_store.remove_documents([injected_doc_id])
+
+                if injection_log is not None and getattr(response, "retrieved_knowledge", None):
+                    retrieved_ids = [getattr(c, "id", None) for c in response.retrieved_knowledge]
+                    chunk_prefix = f"{injection_log.injected_chunk_id}:"
+                    rank: int | None = None
+                    for ix, cid in enumerate(retrieved_ids):
+                        if cid is None:
+                            continue
+                        if cid == injection_log.injected_chunk_id or cid.startswith(chunk_prefix):
+                            rank = ix
+                            break
+                    injection_log.injected_chunk_in_topk = rank is not None
+                    injection_log.injected_chunk_rank = rank
+                    injection_logs.append(injection_log)
+                elif injection_log is not None:
+                    injection_log.injected_chunk_in_topk = False
+                    injection_logs.append(injection_log)
+
+                assistant_text = getattr(response, "text", "")
+                scored_turns.append(
+                    ScoredTurn(
+                        turn_index=turn_ix,
+                        user_text=user_text,
+                        assistant_text=assistant_text,
+                    )
+                )
+                meta: dict[str, Any] = {
+                    "is_probe_turn": (
+                        conv.probe is not None and conv.probe.probe_turn_index == turn_ix
+                    ),
+                    "probe_type": (conv.probe.probe_type if conv.probe is not None else None),
+                    "history_messages_threaded": len(threaded_history),
+                    "history_messages_total": len(history),
+                }
+                pipeline_meta = getattr(response, "metadata", None)
+                if isinstance(pipeline_meta, dict):
+                    meta["pipeline_metadata"] = pipeline_meta
+                if injection_log is not None:
+                    meta["injected_chunk_id"] = injection_log.injected_chunk_id
+                    meta["injected_chunk_in_topk"] = injection_log.injected_chunk_in_topk
+                    meta["injected_chunk_rank"] = injection_log.injected_chunk_rank
+                per_turn_meta.append(meta)
+
+                history.append(Turn(role="user", content=user_text))
+                history.append(Turn(role="assistant", content=assistant_text))
+
+            transcripts.append(
+                EvalConversation(
+                    conversation_id=(
+                        f"{conv.persona_id}::{self.mechanism_label}::{conv.conversation_id}"
+                    ),
+                    mechanism=self.mechanism_label,
+                    persona_id=conv.persona_id,
+                    turns=tuple(scored_turns),
+                    per_turn_metadata=tuple(per_turn_meta),
+                )
+            )
+        logger.info(
+            "OracleProbeRunner: replayed {} conversations through {} (seed={}); "
+            "{} probe injections logged",
+            len(conversations),
+            self.mechanism_label,
+            self.seed,
+            len(injection_logs),
+        )
+        return transcripts, injection_logs
+
+
+__all__ = ["OracleProbeRunner", "ProbeInjectionLog", "ProbeRunner"]
