@@ -68,6 +68,12 @@ class HFBackendConfig:
     load_in_4bit / bnb_4bit_quant_type / bnb_4bit_use_double_quant:
         Quantization knobs. Defaults match the project standard (NF4 +
         double-quant).
+    load_in_8bit:
+        bitsandbytes int8 path. Mutually exclusive with ``load_in_4bit``;
+        the constructor raises ``ValueError`` if both are true. Used only
+        by the quantization-sensitivity ablation; the project standard is
+        4-bit NF4. No ``bnb_8bit_*`` sub-keys exist — int8 takes no
+        additional configuration beyond the flag.
     max_input_tokens:
         Hard cap on tokenized prompt length passed to the model. Protects
         against OOM on a 32 GB V100.
@@ -90,6 +96,7 @@ class HFBackendConfig:
     load_in_4bit: bool = True
     bnb_4bit_quant_type: str = "nf4"
     bnb_4bit_use_double_quant: bool = True
+    load_in_8bit: bool = False
     max_input_tokens: int = 4096
     trust_remote_code: bool = False
     warmup_nan_guard: bool = True
@@ -154,17 +161,28 @@ class HFBackend(LLMBackend):
     """
 
     def __init__(self, cfg: HFBackendConfig) -> None:
+        if cfg.load_in_4bit and cfg.load_in_8bit:
+            raise ValueError(
+                "load_in_4bit and load_in_8bit are mutually exclusive; "
+                "set exactly one of them to True (or both False for unquantized fp16)."
+            )
         self._cfg = cfg
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
+        # Short label for log lines. The bitsandbytes 4-bit and 8-bit paths
+        # use different kernels; we surface that in logs so a reader can tell
+        # which quantization regime a given load came from.
+        quant_label = (
+            "4bit-nf4" if cfg.load_in_4bit else ("8bit-int8" if cfg.load_in_8bit else "fp16")
+        )
         logger.info(
-            "Loading {name} from {repo}@{rev} (dtype={dt}, attn={attn}, 4bit={q})",
+            "Loading {name} from {repo}@{rev} (dtype={dt}, attn={attn}, quant={q})",
             name=cfg.name,
             repo=cfg.model_id,
             rev=cfg.revision or "main",
             dt=cfg.compute_dtype,
             attn=cfg.attn_implementation,
-            q=cfg.load_in_4bit,
+            q=quant_label,
         )
 
         quant_cfg = None
@@ -175,6 +193,12 @@ class HFBackend(LLMBackend):
                 bnb_4bit_use_double_quant=cfg.bnb_4bit_use_double_quant,
                 bnb_4bit_compute_dtype=_resolve_dtype(cfg.compute_dtype),
             )
+        elif cfg.load_in_8bit:
+            # int8 takes no additional configuration; load_in_8bit=True is the
+            # entire knob. bitsandbytes' Int8Params is not affected by the
+            # torchdynamo Params4bit.t() issue we work around below, but we
+            # keep the cache_implementation=None defence regardless — cheap.
+            quant_cfg = BitsAndBytesConfig(load_in_8bit=True)
 
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
@@ -589,6 +613,7 @@ class HFBackend(LLMBackend):
             "load_in_4bit": self._cfg.load_in_4bit,
             "bnb_4bit_quant_type": self._cfg.bnb_4bit_quant_type,
             "bnb_4bit_use_double_quant": self._cfg.bnb_4bit_use_double_quant,
+            "load_in_8bit": self._cfg.load_in_8bit,
             "num_layers": self.num_layers,
             "hidden_dim": self.hidden_dim,
             "peak_gpu_mem_gb": peak_gb,
