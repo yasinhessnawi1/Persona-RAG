@@ -88,7 +88,19 @@ PROBE_IDS_10 = (
     "probe_b_04",
     "probe_b_05",
 )
-MECHANISMS_FP16 = ("B2", "M1")
+# Mechanism labels used at ProbeRunner construction time. These are the
+# strings that become part of EvalConversation.conversation_id (which
+# the PoLL panel cache hashes for keying). They MUST differ from the
+# labels the prior 4-bit Spec-9 sweep used ("B2", "M1") so that the
+# 4-bit symlinked transcripts and the fp16 fresh transcripts produce
+# distinct conversation_ids and therefore distinct PoLL cache keys.
+# Without this, the harness serves one PoLL panel run to two cells —
+# the 2026-05-11 fp16 run hit exactly that bug; see decision #078-AMENDMENT.
+RUNNER_MECHANISM_LABELS: tuple[str, ...] = ("B2_fp16", "M1_fp16")
+# Pipeline lookup keys (the in-driver dict keys for B2 / M1 builds). Kept
+# separate from RUNNER_MECHANISM_LABELS so the pipeline-construction code
+# below reads naturally.
+PIPELINE_KEYS: tuple[str, ...] = ("B2", "M1")
 
 
 def _build_fp16_responder() -> GemmaBackend:
@@ -344,7 +356,7 @@ def main() -> int:
 
     logger.info(
         "Spec-9 quantization-sensitivity ablation (fp16): {} mechanisms over {} probes",
-        len(MECHANISMS_FP16),
+        len(RUNNER_MECHANISM_LABELS),
         len(conversations),
     )
 
@@ -368,16 +380,25 @@ def main() -> int:
         persona_id=args.persona, responder=responder
     )
 
-    by_mechanism_logs: dict[str, list[ProbeInjectionLog]] = {m: [] for m in MECHANISMS_FP16}
-    by_mechanism_transcripts: dict[str, list[Path]] = {m: [] for m in MECHANISMS_FP16}
+    # Keyed by the precision-tagged runner label ("B2_fp16", "M1_fp16") so the
+    # combined-sweep symlinks and the in-memory bookkeeping share one identifier
+    # space. The pipeline lookup uses the un-tagged PIPELINE_KEYS ("B2", "M1").
+    by_mechanism_logs: dict[str, list[ProbeInjectionLog]] = {
+        label: [] for label in RUNNER_MECHANISM_LABELS
+    }
+    by_mechanism_transcripts: dict[str, list[Path]] = {
+        label: [] for label in RUNNER_MECHANISM_LABELS
+    }
 
-    for mechanism_label in MECHANISMS_FP16:
-        pipeline = pipelines[mechanism_label]
-        mech_transcripts_dir = run_dir / "transcripts" / mechanism_label
+    for pipeline_key, runner_label in zip(PIPELINE_KEYS, RUNNER_MECHANISM_LABELS, strict=True):
+        pipeline = pipelines[pipeline_key]
+        # Per-mechanism transcript dir keeps the precision tag so each run's
+        # on-disk layout is self-describing.
+        mech_transcripts_dir = run_dir / "transcripts" / runner_label
         mech_transcripts_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "running {} (fp16) over {} probes for persona {}",
-            mechanism_label,
+            runner_label,
             len(conversations),
             args.persona,
         )
@@ -386,13 +407,18 @@ def main() -> int:
             knowledge_store=knowledge_store,
             chunks=per_persona_chunks,
             seed=args.seed,
-            mechanism_label=mechanism_label,
+            # ``mechanism_label`` is baked into every EvalConversation.conversation_id
+            # at generation time. It MUST be the precision-tagged label so the
+            # PoLL panel cache key (sha256 over conversation_ids) does not
+            # collide with the prior 4-bit Spec-9 sweep's transcripts, which
+            # were generated with mechanism_label="B2"/"M1".
+            mechanism_label=runner_label,
         )
         transcripts, injection_logs = runner.replay(persona, conversations)
         for transcript in transcripts:
             path = _write_transcript(mech_transcripts_dir, transcript)
-            by_mechanism_transcripts[mechanism_label].append(path)
-        by_mechanism_logs[mechanism_label].extend(injection_logs)
+            by_mechanism_transcripts[runner_label].append(path)
+        by_mechanism_logs[runner_label].extend(injection_logs)
 
     peak_vram_generation_gb = (
         torch.cuda.max_memory_allocated() / (1024**3) if torch.cuda.is_available() else None
@@ -411,15 +437,17 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    for mechanism_label in MECHANISMS_FP16:
-        target_label = f"{mechanism_label}_fp16"
+    # The combined-sweep dir's directory names match the precision-tagged
+    # runner labels, so the harness reads conversation_ids whose tags agree
+    # with the directory layout. No more double-tagging "B2_fp16_fp16".
+    for runner_label in RUNNER_MECHANISM_LABELS:
         n_linked = _symlink_into_combined_dir(
             combined_root=combined_root,
-            mechanism=target_label,
-            transcript_paths=by_mechanism_transcripts[mechanism_label],
+            mechanism=runner_label,
+            transcript_paths=by_mechanism_transcripts[runner_label],
         )
         logger.info(
-            "symlinked {} {} (fp16) transcripts into combined sweep", n_linked, target_label
+            "symlinked {} {} (fp16) transcripts into combined sweep", n_linked, runner_label
         )
 
     if args.b2_m1_4bit_source_dir is not None:
@@ -445,7 +473,7 @@ def main() -> int:
         "persona": args.persona,
         "n_conversations": len(conversations),
         "probe_ids": list(PROBE_IDS_10),
-        "mechanisms_generated_at_fp16": list(MECHANISMS_FP16),
+        "mechanisms_generated_at_fp16": list(RUNNER_MECHANISM_LABELS),
         "responder": {
             "model_id": responder.model_id,
             "name": responder.name,
@@ -475,7 +503,7 @@ def main() -> int:
         json.dumps(cfg_snapshot, indent=2) + "\n", encoding="utf-8"
     )
 
-    enabled_mechs = ["B2_fp16", "M1_fp16"]
+    enabled_mechs = list(RUNNER_MECHANISM_LABELS)
     for target, (ok, _, _) in symlink_outcomes.items():
         if ok:
             enabled_mechs.append(target)
@@ -485,7 +513,7 @@ def main() -> int:
         "",
         f"- persona: {args.persona}",
         f"- probes (10): {', '.join(PROBE_IDS_10)}",
-        f"- fp16 mechanisms generated: {list(MECHANISMS_FP16)}",
+        f"- fp16 mechanisms generated: {list(RUNNER_MECHANISM_LABELS)}",
         f"- VRAM peak after load: {peak_vram_after_load_gb:.2f} GB"
         if peak_vram_after_load_gb is not None
         else "- VRAM peak after load: n/a (cpu)",

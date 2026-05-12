@@ -82,7 +82,16 @@ PROBE_IDS_10 = (
     "probe_b_04",
     "probe_b_05",
 )
-MECHANISMS_8BIT = ("B2", "M1")  # 8-bit run generates these; 4-bit comes from symlinks
+# Mechanism labels used at ProbeRunner construction time. These are the
+# strings that become part of EvalConversation.conversation_id (which
+# the PoLL panel cache hashes for keying). They MUST differ from the
+# labels the prior 4-bit Spec-9 sweep used ("B2", "M1") so that the
+# 4-bit symlinked transcripts and any 8-bit fresh transcripts produce
+# distinct conversation_ids and therefore distinct PoLL cache keys.
+# This driver halted at warm-up so the bug never fired in production —
+# the fix is defensive, mirroring the corresponding fp16 driver fix.
+RUNNER_MECHANISM_LABELS: tuple[str, ...] = ("B2_8bit", "M1_8bit")
+PIPELINE_KEYS: tuple[str, ...] = ("B2", "M1")
 
 
 def _build_8bit_responder() -> GemmaBackend:
@@ -336,7 +345,7 @@ def main() -> int:
 
     logger.info(
         "Spec-9 quantization-sensitivity ablation: {} 8-bit mechanisms over {} probes",
-        len(MECHANISMS_8BIT),
+        len(RUNNER_MECHANISM_LABELS),
         len(conversations),
     )
 
@@ -357,16 +366,20 @@ def main() -> int:
         persona_id=args.persona, responder=responder
     )
 
-    by_mechanism_logs: dict[str, list[ProbeInjectionLog]] = {m: [] for m in MECHANISMS_8BIT}
-    by_mechanism_transcripts: dict[str, list[Path]] = {m: [] for m in MECHANISMS_8BIT}
+    by_mechanism_logs: dict[str, list[ProbeInjectionLog]] = {
+        label: [] for label in RUNNER_MECHANISM_LABELS
+    }
+    by_mechanism_transcripts: dict[str, list[Path]] = {
+        label: [] for label in RUNNER_MECHANISM_LABELS
+    }
 
-    for mechanism_label in MECHANISMS_8BIT:
-        pipeline = pipelines[mechanism_label]
-        mech_transcripts_dir = run_dir / "transcripts" / mechanism_label
+    for pipeline_key, runner_label in zip(PIPELINE_KEYS, RUNNER_MECHANISM_LABELS, strict=True):
+        pipeline = pipelines[pipeline_key]
+        mech_transcripts_dir = run_dir / "transcripts" / runner_label
         mech_transcripts_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "running {} (8-bit) over {} probes for persona {}",
-            mechanism_label,
+            runner_label,
             len(conversations),
             args.persona,
         )
@@ -375,13 +388,15 @@ def main() -> int:
             knowledge_store=knowledge_store,
             chunks=per_persona_chunks,
             seed=args.seed,
-            mechanism_label=mechanism_label,
+            # Precision-tagged runner label so EvalConversation.conversation_id
+            # doesn't collide with the prior 4-bit Spec-9 sweep (see #078-AMENDMENT).
+            mechanism_label=runner_label,
         )
         transcripts, injection_logs = runner.replay(persona, conversations)
         for transcript in transcripts:
             path = _write_transcript(mech_transcripts_dir, transcript)
-            by_mechanism_transcripts[mechanism_label].append(path)
-        by_mechanism_logs[mechanism_label].extend(injection_logs)
+            by_mechanism_transcripts[runner_label].append(path)
+        by_mechanism_logs[runner_label].extend(injection_logs)
 
     peak_vram_generation_gb = (
         torch.cuda.max_memory_allocated() / (1024**3) if torch.cuda.is_available() else None
@@ -402,15 +417,14 @@ def main() -> int:
     )
 
     # Symlink 8-bit transcripts into the combined sweep dir under B2_8bit / M1_8bit.
-    for mechanism_label in MECHANISMS_8BIT:
-        target_label = f"{mechanism_label}_8bit"
+    for runner_label in RUNNER_MECHANISM_LABELS:
         n_linked = _symlink_into_combined_dir(
             combined_root=combined_root,
-            mechanism=target_label,
-            transcript_paths=by_mechanism_transcripts[mechanism_label],
+            mechanism=runner_label,
+            transcript_paths=by_mechanism_transcripts[runner_label],
         )
         logger.info(
-            "symlinked {} {} (8-bit) transcripts into combined sweep", n_linked, target_label
+            "symlinked {} {} (8-bit) transcripts into combined sweep", n_linked, runner_label
         )
 
     # Symlink the matching 4-bit B2 + M1 subset from the prior Spec-9 sweep.
@@ -438,7 +452,7 @@ def main() -> int:
         "persona": args.persona,
         "n_conversations": len(conversations),
         "probe_ids": list(PROBE_IDS_10),
-        "mechanisms_generated_at_8bit": list(MECHANISMS_8BIT),
+        "mechanisms_generated_at_8bit": list(RUNNER_MECHANISM_LABELS),
         "responder": {
             "model_id": responder.model_id,
             "name": responder.name,
@@ -467,7 +481,7 @@ def main() -> int:
     )
 
     # Combined sweep report.
-    enabled_mechs = ["B2_8bit", "M1_8bit"]
+    enabled_mechs = list(RUNNER_MECHANISM_LABELS)
     for target, (ok, _, _) in symlink_outcomes.items():
         if ok:
             enabled_mechs.append(target)
@@ -477,7 +491,7 @@ def main() -> int:
         "",
         f"- persona: {args.persona}",
         f"- probes (10): {', '.join(PROBE_IDS_10)}",
-        f"- 8-bit mechanisms generated: {list(MECHANISMS_8BIT)}",
+        f"- 8-bit mechanisms generated: {list(RUNNER_MECHANISM_LABELS)}",
         f"- VRAM peak after load: {peak_vram_after_load_gb:.2f} GB"
         if peak_vram_after_load_gb is not None
         else "- VRAM peak after load: n/a (cpu)",
