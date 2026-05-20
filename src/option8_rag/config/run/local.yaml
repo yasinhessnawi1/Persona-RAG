@@ -1,8 +1,0 @@
-# Run configuration: knobs that flip between dev (local) and full (V100) runs.
-name: local
-# When true, retrieval and synthesis run end-to-end on a small slice for
-# fast iteration on a laptop. The CLI wires this into corpus.subsample_size
-# and skips heavy stages.
-smoke: true
-smoke_max_queries: 25
-smoke_max_chunks: 1000

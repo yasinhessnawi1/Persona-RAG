@@ -112,8 +112,8 @@ def figure_lockstep() -> None:
     ax.axvspan(
         min(drift_turns) - 0.5,
         max(drift_turns) + 0.5,
-        alpha=0.08,
-        color="gray",
+        alpha=0.16,
+        color="#9aa0a6",
         zorder=0,
         label="drift-gradient turns",
     )
@@ -144,7 +144,7 @@ def figure_lockstep() -> None:
     backend = raw["backend"]["name"]
     annot = (
         f"{backend}  ·  layer {layer}  ·  {PERSONA_LABELS[persona]}\n"
-        f"|delta| over drift turns = {abs(delta):.4f}"
+        f"|delta| over drift turns = {abs(delta):.3f}"
     )
     ax.text(
         0.98,
